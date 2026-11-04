@@ -487,15 +487,48 @@
                 }
             }
 
+            // a category that stays off screen for 5 seconds is taken out of the page (and put back when it's near again)
+            var UNLOAD_MS = 5000;
+            function unloadSection(sec) {
+                sec._t = null;
+                var c = sec.querySelector('.buttons-container');
+                if (!c || sec.dataset.unloaded || !sec.dataset.live) return;
+                c.style.minHeight = c.offsetHeight + 'px';      // keeps the page from jumping
+                var f = document.createDocumentFragment();
+                while (c.firstChild) f.appendChild(c.firstChild);
+                sec._frag = f;
+                sec.dataset.unloaded = '1';
+                delete sec.dataset.live;
+                if (mo) mo.takeRecords();
+            }
+            function restoreSection(sec) {
+                if (!sec.dataset.unloaded) return;
+                var c = sec.querySelector('.buttons-container');
+                if (c && sec._frag) c.appendChild(sec._frag);
+                sec._frag = null;
+                if (c) c.style.minHeight = '';
+                delete sec.dataset.unloaded;
+            }
+            function restoreAll() {
+                var secs = container.querySelectorAll('.letter-section');
+                for (var i = 0; i < secs.length; i++) restoreSection(secs[i]);
+                if (mo) mo.takeRecords();
+            }
+
             if ('IntersectionObserver' in window) {
                 io = new IntersectionObserver(function (entries) {
                     var did = false;
                     entries.forEach(function (en) {
-                        if (!en.isIntersecting) return;
-                        io.unobserve(en.target);
-                        en.target.dataset.live = '1';
-                        wrapSection(en.target);
-                        did = true;
+                        var sec = en.target;
+                        if (en.isIntersecting) {
+                            clearTimeout(sec._t); sec._t = null;
+                            restoreSection(sec);
+                            sec.dataset.live = '1';
+                            wrapSection(sec);
+                            did = true;
+                        } else if (sec.dataset.live && !sec._t) {
+                            sec._t = setTimeout(function () { unloadSection(sec); }, UNLOAD_MS);
+                        }
                     });
                     if (did) { updateStars(); filter(); if (mo) mo.takeRecords(); }
                 }, { rootMargin: '900px 0px' });
@@ -555,6 +588,7 @@
             function filter() {
                 var raw = input.value.trim().toLowerCase();
                 var q = norm(raw);
+                if (q) restoreAll();                 // searching needs every game back in the page
                 var sections = container.querySelectorAll('.letter-section');
                 var total = 0;
                 for (var i = 0; i < sections.length; i++) {
