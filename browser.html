@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Nimbus Browser</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root{
+  --bg-page:#0B0C10;
+  --chrome-darkest:#16171C;
+  --chrome-bg:#1B1C22;
+  --toolbar-bg:#202128;
+  --surface:#26272E;
+  --surface-2:#2C2D36;
+  --border:rgba(255,255,255,0.08);
+  --text-primary:#EDEDF2;
+  --text-secondary:#9497A6;
+  --text-faint:#5B5D6B;
+  --accent-indigo:#6E6FF2;
+  --accent-amber:#F2A93B;
+  --accent-green:#4CD787;
+  --accent-red:#EF5B5B;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{
+  font-family:'Inter',system-ui,sans-serif;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(110,111,242,0.10), transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(242,169,59,0.08), transparent 40%),
+    var(--bg-page);
+  color:var(--text-primary);
+  height:100vh;
+  overflow:hidden;
+}
+@media (prefers-reduced-motion: reduce){
+  *{transition:none!important; animation:none!important;}
+}
+
+.stage{position:absolute; inset:0; overflow:hidden;}
+.hint-bar{
+  position:fixed; bottom:14px; left:50%; transform:translateX(-50%);
+  font-size:11px; color:var(--text-faint); background:rgba(20,20,24,0.85);
+  backdrop-filter:blur(6px);
+  border:1px solid var(--border); padding:6px 12px; border-radius:20px;
+  display:flex; gap:14px; z-index:9999; white-space:nowrap;
+}
+.hint-bar b{color:var(--text-secondary); font-weight:600;}
+
+.browser-window{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  background:var(--chrome-bg);
+  border-radius:0;
+  border:none;
+  box-shadow:none;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  transition:box-shadow 0.15s ease;
+}
+.browser-window.focused{
+  box-shadow:none;
+}
+
+/* Title / tab strip */
+.titlebar-row{
+  height:40px;
+  background:var(--chrome-darkest);
+  display:flex;
+  align-items:flex-end;
+  padding:0 10px;
+  gap:6px;
+  flex-shrink:0;
+  cursor:default;
+}
+.traffic-lights{display:flex; gap:7px; padding-bottom:12px; margin-right:6px;}
+.dot{width:11px;height:11px;border-radius:50%; cursor:pointer; border:none; padding:0;}
+.dot:hover{filter:brightness(1.35);}
+.dot:active{transform:scale(0.85);}
+.dot.red{background:#EF5B5B;} .dot.yellow{background:#F2C94C;} .dot.green{background:#4CD787;}
+.dot.disabled{opacity:0.3; cursor:default; filter:none; pointer-events:none;}
+.win-num{
+  font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-faint);
+  padding-bottom:13px; margin-right:6px; user-select:none;
+}
+
+.tab-strip{
+  flex:1;
+  display:flex;
+  align-items:flex-end;
+  gap:2px;
+  overflow-x:auto;
+  scrollbar-width:none;
+  height:100%;
+}
+.tab-strip::-webkit-scrollbar{display:none;}
+.tab{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:0 10px;
+  height:30px;
+  min-width:120px;
+  max-width:180px;
+  border-radius:8px 8px 0 0;
+  background:transparent;
+  color:var(--text-secondary);
+  font-size:12.5px;
+  cursor:pointer;
+  white-space:nowrap;
+  border:1px solid transparent;
+}
+.tab.active{
+  background:var(--toolbar-bg);
+  color:var(--text-primary);
+  border-color:var(--border);
+  border-bottom:none;
+}
+.tab .swatch{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.tab .tab-title{overflow:hidden;text-overflow:ellipsis;flex:1;}
+.tab .tab-close{
+  opacity:0; font-size:14px; line-height:1; color:var(--text-faint); padding:2px;
+  border-radius:4px;
+}
+.tab:hover .tab-close{opacity:1;}
+.tab .tab-close:hover{background:rgba(255,255,255,0.1); color:var(--text-primary);}
+.new-tab-btn{
+  width:26px;height:26px;margin-bottom:2px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:6px;color:var(--text-secondary);cursor:pointer;font-size:16px;
+}
+.new-tab-btn:hover{background:rgba(255,255,255,0.08); color:var(--text-primary);}
+
+/* Toolbar */
+.toolbar{
+  height:48px;
+  background:var(--toolbar-bg);
+  border-bottom:1px solid var(--border);
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:0 12px;
+  flex-shrink:0;
+}
+.nav-btn{
+  width:28px;height:28px;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--text-secondary); cursor:pointer; flex-shrink:0;
+}
+.nav-btn:hover{background:rgba(255,255,255,0.08); color:var(--text-primary);}
+.nav-btn svg{width:15px;height:15px;}
+
+.address-bar{
+  flex:1;
+  height:30px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:8px;
+  display:flex;
+  align-items:center;
+  padding:0 10px;
+  gap:7px;
+  min-width:0;
+}
+.address-bar svg{width:12px;height:12px;color:var(--accent-green); flex-shrink:0;}
+.address-bar input{
+  border:none; background:transparent; outline:none; color:var(--text-primary);
+  font-family:'JetBrains Mono',monospace; font-size:12.5px; flex:1; min-width:0;
+}
+.address-bar input::placeholder{color:var(--text-faint);}
+
+.action-icons{display:flex; align-items:center; gap:6px; flex-shrink:0;}
+.icon-btn{
+  position:relative;
+  width:32px;height:32px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--text-secondary); cursor:pointer;
+  border:1px solid transparent;
+}
+.icon-btn:hover{background:rgba(255,255,255,0.08); color:var(--text-primary);}
+.icon-btn.on{background:rgba(110,111,242,0.16); color:var(--accent-indigo); border-color:rgba(110,111,242,0.35);}
+.icon-btn.ai-on{background:rgba(242,169,59,0.16); color:var(--accent-amber); border-color:rgba(242,169,59,0.35);}
+.icon-btn svg{width:16px;height:16px;}
+.badge{
+  position:absolute; top:-3px; right:-3px; min-width:15px; height:15px; border-radius:8px;
+  background:var(--accent-red); color:#fff; font-size:9.5px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; padding:0 3px;
+}
+.divider{width:1px; height:20px; background:var(--border); margin:0 2px;}
+
+.identity-btn{
+  width:30px;height:30px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:11.5px; font-weight:700; color:#0B0C10; cursor:pointer;
+  border:2px solid var(--toolbar-bg); flex-shrink:0;
+}
+.identity-btn.incog{ background:var(--surface-2)!important; color:var(--text-primary); }
+
+/* Content area */
+.content-area{flex:1; position:relative; overflow:hidden; background:var(--chrome-bg);}
+
+.page-content{
+  position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; padding:20px;
+}
+.mesh-bg{
+  position:absolute; inset:0; width:100%; height:100%; pointer-events:none;
+}
+.web-frame{
+  position:absolute; inset:0; width:100%; height:100%; border:none; background:#fff;
+}
+.page-content .mark{
+  width:56px;height:56px;border-radius:16px;
+  background:linear-gradient(135deg, var(--accent-indigo), var(--accent-amber));
+  display:flex;align-items:center;justify-content:center;margin-bottom:18px;
+  box-shadow:0 8px 24px rgba(110,111,242,0.35);
+}
+.page-content .mark svg{width:28px;height:28px;color:#0B0C10;}
+.page-content h1{font-size:19px; font-weight:600; margin:0 0 6px;}
+.page-content p{font-size:13px; color:var(--text-secondary); max-width:340px; margin:0 0 22px; line-height:1.5;}
+.page-content .cta-row{display:flex; gap:10px;}
+.pc-btn{
+  font-family:inherit; font-size:12.5px; font-weight:600; padding:9px 15px; border-radius:9px;
+  border:1px solid var(--border); cursor:pointer; display:flex; align-items:center; gap:7px;
+}
+.pc-btn.primary{background:var(--accent-indigo); color:#0B0C10; border-color:var(--accent-indigo);}
+.pc-btn.ghost{background:var(--surface); color:var(--text-primary);}
+.pc-btn svg{width:14px;height:14px;}
+
+/* Drawers (chat + ai) */
+
+.action-icons .icon-btn.disabled{opacity:.35; pointer-events:none;}
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage"></div>
+<div class="hint-bar">
+  <span><b>green dot</b> new tab</span>
+  <span><b>yellow dot</b> new window</span>
+  <span><b>red dot</b> close window</span>
+  <span><b>1–9</b> switch window</span>
+</div>
+
+<template id="windowTemplate">
+<div class="browser-window">
+  <div class="titlebar-row" data-role="titlebar">
+    <div class="traffic-lights">
+      <button class="dot red" data-role="dotRed" title="Close this window"></button>
+      <button class="dot yellow" data-role="dotYellow" title="New window"></button>
+      <button class="dot green" data-role="dotGreen" title="New tab"></button>
+    </div>
+    <div class="win-num" data-role="winNum">1</div>
+    <div class="tab-strip" data-role="tabStrip"></div>
+    <div class="new-tab-btn" data-role="newTabBtn" title="New tab">+</div>
+  </div>
+
+  <div class="toolbar">
+    <div class="nav-btn" data-role="backBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></div>
+    <div class="nav-btn" data-role="forwardBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+    <div class="nav-btn" data-role="reloadBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></div>
+
+    <div class="address-bar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+      <input data-role="addressInput" placeholder="Search or enter a web address" autocomplete="off">
+    </div>
+
+    <div class="action-icons">
+      <div class="icon-btn" data-role="openExternal" title="Open this page in a new browser tab">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="content-area">
+    <iframe class="web-frame" data-role="webFrame" style="display:none;"></iframe>
+    <div class="page-content">
+      <canvas class="mesh-bg" data-role="meshCanvas"></canvas>
+      <div class="mark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></svg></div>
+      <h1 data-role="pageTitle">New Tab</h1>
+      <p data-role="pageSub">Type a web address or a search in the bar above and press Enter. Some sites don't allow being shown inside another page. For those, use the arrow icon on the right to open them in a normal tab.</p>
+    </div>
+  </div>
+</div>
+</template>
+
+<script>
+(function(){
+const COLORS = ['#6E6FF2','#F2A93B','#4CD787','#EF5B5B','#3BB0F2','#F2799E','#8CE07A','#C792EA'];
+const DATA_ROLES = ['dotRed','dotYellow','dotGreen','winNum','tabStrip','newTabBtn','reloadBtn',
+  'backBtn','forwardBtn','addressInput','openExternal','pageTitle','pageSub','webFrame','meshCanvas'];
+
+const stage = document.getElementById('stage');
+const tpl = document.getElementById('windowTemplate');
+
+let windows = [];
+let winCounter = 0;
+let tabCounter = 0;
+let zTop = 10;
+
+function makeTab(){
+  tabCounter++;
+  return { id:'tab-'+tabCounter+'-'+Date.now(), title:'New Tab', url:null,
+           color: COLORS[Math.floor(Math.random()*COLORS.length)], hist:[], hi:-1 };
+}
+function activeTab(state){ return state.tabs.find(t=>t.id===state.activeTabId); }
+function escapeHtml(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------- Animated mesh background ----------
+function initMesh(state){
+  const canvas = state.dom.meshCanvas;
+  const ctx = canvas.getContext('2d');
+  let w=0, h=0, points=[];
+  const mouse = { x:null, y:null };
+
+  const colorA = [56, 62, 128];   // dark indigo
+  const colorB = [94, 56, 122];   // dark violet
+  const colorC = [42, 92, 100];   // dark teal
+  function lerpColor(a,b,t){ return [0,1,2].map(i => Math.round(a[i] + (b[i]-a[i])*t)); }
+  function colorAt(fracX){
+    return fracX < 0.5 ? lerpColor(colorA, colorC, fracX*2) : lerpColor(colorC, colorB, (fracX-0.5)*2);
+  }
+
+  function buildPoints(){
+    points = [];
+    const spacing = 64;
+    const cols = Math.ceil(w/spacing) + 2;
+    const rows = Math.ceil(h/spacing) + 2;
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const bx = c*spacing + (r%2 ? spacing/2 : 0) - spacing + (Math.random()-0.5)*18;
+        const by = r*spacing - spacing + (Math.random()-0.5)*18;
+        points.push({ bx, by, x:bx, y:by });
+      }
+    }
+  }
+  function resize(){
+    const rect = canvas.parentElement.getBoundingClientRect();
+    w = canvas.width = rect.width;
+    h = canvas.height = rect.height;
+    buildPoints();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  state.el.addEventListener('mousemove', (e)=>{
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+  });
+  state.el.addEventListener('mouseleave', ()=>{ mouse.x = null; mouse.y = null; });
+
+  const RADIUS = 170, PULL = 34, EASE = 0.06, MAX_DIST = 78;
+
+  function frame(){
+    if(w>0 && h>0){
+      ctx.clearRect(0,0,w,h);
+      points.forEach(p=>{
+        let tx = p.bx, ty = p.by;
+        if(mouse.x!=null){
+          const dx = mouse.x - p.bx, dy = mouse.y - p.by;
+          const dist = Math.hypot(dx,dy);
+          if(dist < RADIUS){
+            const f = (1 - dist/RADIUS) * PULL;
+            tx = p.bx + (dx/(dist||1))*f;
+            ty = p.by + (dy/(dist||1))*f;
+          }
+        }
+        p.x += (tx - p.x) * EASE;
+        p.y += (ty - p.y) * EASE;
+      });
+      for(let i=0;i<points.length;i++){
+        for(let j=i+1;j<points.length;j++){
+          const dx = points[i].x-points[j].x, dy = points[i].y-points[j].y;
+          const dist = Math.hypot(dx,dy);
+          if(dist < MAX_DIST){
+            const col = colorAt(((points[i].x+points[j].x)/2)/w);
+            ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${(1-dist/MAX_DIST)*0.4})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(points[i].x, points[i].y);
+            ctx.lineTo(points[j].x, points[j].y);
+            ctx.stroke();
+          }
+        }
+      }
+      points.forEach(p=>{
+        const col = colorAt(p.x/w);
+        ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.85)`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2, 0, Math.PI*2);
+        ctx.fill();
+      });
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------- Window lifecycle ----------
+function createWindow(){
+  const frag = tpl.content.cloneNode(true);
+  const el = frag.firstElementChild;
+  stage.appendChild(el);
+
+  const dom = {};
+  DATA_ROLES.forEach(r => { dom[r] = el.querySelector('[data-role="'+r+'"]'); });
+
+  const state = { id:'win-'+(++winCounter), el, dom, tabs:[], activeTabId:null };
+  windows.push(state);
+
+  const t = makeTab();
+  state.tabs.push(t);
+  state.activeTabId = t.id;
+
+  wireWindow(state);
+  renderTabs(state);
+  renderPage(state);
+  initMesh(state);
+  renumberWindows();
+  focusWindow(state);
+  return state;
+}
+
+function focusWindow(state){
+  windows.forEach(w=>w.el.classList.remove('focused'));
+  state.el.classList.add('focused');
+  state.el.style.zIndex = (++zTop);
+}
+
+function closeWindow(state){
+  if(windows.length<=1){
+    // last window: ask the page that is hosting us to close the browser
+    try{ parent.postMessage({ type:'browser-close' }, '*'); }catch(e){}
+    return;
+  }
+  const idx = windows.indexOf(state);
+  state.el.remove();
+  windows.splice(idx,1);
+  renumberWindows();
+  focusWindow(windows[Math.max(0, idx-1)]);
+}
+
+function renumberWindows(){
+  windows.forEach((w,i)=>{ w.dom.winNum.textContent = (i+1); });
+}
+
+document.addEventListener('keydown', (e)=>{
+  if(['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) return;
+  const n = parseInt(e.key, 10);
+  if(n>=1 && n<=9 && windows[n-1]) focusWindow(windows[n-1]);
+});
+
+// ---------- Per-window wiring ----------
+function wireWindow(state){
+  const dom = state.dom;
+  state.el.addEventListener('mousedown', ()=>focusWindow(state));
+
+  dom.dotGreen.addEventListener('click', e=>{ e.stopPropagation(); focusWindow(state); addTab(state); });
+  dom.dotYellow.addEventListener('click', e=>{ e.stopPropagation(); createWindow(); });
+  dom.dotRed.addEventListener('click', e=>{ e.stopPropagation(); closeWindow(state); });
+
+  dom.newTabBtn.addEventListener('click', ()=>addTab(state));
+
+  dom.addressInput.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){
+      const val = e.target.value.trim();
+      if(!val) return;
+      navigate(state, val);
+    }
+  });
+  dom.addressInput.addEventListener('focus', e=>e.target.select());
+
+  dom.backBtn.addEventListener('click', ()=>go(state, -1));
+  dom.forwardBtn.addEventListener('click', ()=>go(state, 1));
+  dom.reloadBtn.addEventListener('click', ()=>{
+    dom.reloadBtn.style.transition='transform 0.4s ease';
+    dom.reloadBtn.style.transform='rotate(360deg)';
+    setTimeout(()=>{ dom.reloadBtn.style.transform=''; },400);
+    const tab = activeTab(state);
+    if(tab.url){ dom.webFrame.src = tab.url; }
+  });
+  dom.openExternal.addEventListener('click', ()=>{
+    const tab = activeTab(state);
+    if(tab.url) window.open(tab.url, '_blank', 'noopener');
+  });
+}
+
+// ---------- Tabs ----------
+function renderTabs(state){
+  const strip = state.dom.tabStrip;
+  strip.innerHTML = '';
+  state.tabs.forEach(t=>{
+    const el = document.createElement('div');
+    el.className = 'tab' + (t.id===state.activeTabId ? ' active':'');
+    el.innerHTML = `<span class="swatch" style="background:${t.color}"></span><span class="tab-title">${escapeHtml(t.title)}</span><span class="tab-close">✕</span>`;
+    el.addEventListener('click', (e)=>{
+      if(e.target.classList.contains('tab-close')){ closeTab(state, t.id); e.stopPropagation(); return; }
+      switchTab(state, t.id);
+    });
+    strip.appendChild(el);
+  });
+}
+function switchTab(state, id){
+  state.activeTabId = id;
+  renderTabs(state);
+  renderPage(state);
+}
+function addTab(state){
+  const t = makeTab();
+  state.tabs.push(t);
+  switchTab(state, t.id);
+}
+function closeTab(state, id){
+  if(state.tabs.length===1) return;
+  const idx = state.tabs.findIndex(t=>t.id===id);
+  state.tabs.splice(idx,1);
+  if(state.activeTabId===id){
+    switchTab(state, state.tabs[Math.max(0, idx-1)].id);
+  } else {
+    renderTabs(state);
+  }
+}
+function renderPage(state){
+  const tab = activeTab(state);
+  const dom = state.dom;
+  dom.pageTitle.textContent = tab.title;
+  dom.addressInput.value = tab.url || '';
+  dom.backBtn.classList.toggle('disabled', !(tab.hi > 0));
+  dom.forwardBtn.classList.toggle('disabled', !(tab.hi < tab.hist.length-1));
+  dom.openExternal.classList.toggle('disabled', !tab.url);
+  if(tab.url){
+    dom.webFrame.style.display = 'block';
+    if(dom.webFrame.dataset.loadedUrl !== tab.url){
+      dom.webFrame.src = tab.url;
+      dom.webFrame.dataset.loadedUrl = tab.url;
+    }
+    state.el.querySelector('.page-content').style.display = 'none';
+  } else {
+    dom.webFrame.style.display = 'none';
+    dom.webFrame.removeAttribute('src');
+    delete dom.webFrame.dataset.loadedUrl;
+    state.el.querySelector('.page-content').style.display = 'flex';
+  }
+}
+
+function titleFor(url, raw){
+  try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){}
+  return raw.length > 24 ? raw.slice(0,24)+'…' : raw;
+}
+
+function navigate(state, raw){
+  let url = raw.trim();
+  const looksLikeDomain = /^[\w-]+(\.[\w-]+)+/.test(url) && !/\s/.test(url);
+  if(!/^https?:\/\//i.test(url)){
+    url = looksLikeDomain ? 'https://' + url : 'https://duckduckgo.com/html/?q=' + encodeURIComponent(url);
+  }
+  const tab = activeTab(state);
+  tab.hist = tab.hist.slice(0, tab.hi+1);
+  tab.hist.push({ url, title: titleFor(url, raw) });
+  tab.hi = tab.hist.length-1;
+  tab.url = url;
+  tab.title = tab.hist[tab.hi].title;
+  renderTabs(state);
+  renderPage(state);
+}
+
+function go(state, delta){
+  const tab = activeTab(state);
+  const next = tab.hi + delta;
+  if(next < 0 || next >= tab.hist.length) return;
+  tab.hi = next;
+  tab.url = tab.hist[next].url;
+  tab.title = tab.hist[next].title;
+  renderTabs(state);
+  renderPage(state);
+}
+
+// ---------- init ----------
+createWindow();
+})();
+</script>
+</body>
+</html>

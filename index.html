@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <base target="_blank">
+    <title>Nimbus</title>
+    <style>
+        :root {
+            --bg: #16161d;
+            --panel: #1c1c26;
+            --panel-2: #23232f;
+            --border: rgba(255,255,255,0.08);
+            --text: #f1f1f5;
+            --muted: #9a9aab;
+            --accent: #6d6af2;
+            --accent-hover: #8280ff;
+        }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; scroll-padding-top: 66px; }
+        body {
+            margin: 0;
+            font-family: Inter, "Segoe UI", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        #bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+
+        /* ---------- browser chrome ---------- */
+        .chrome { position: fixed; top: 0; left: 0; right: 0; z-index: 1100; background: var(--chrome-bg, rgba(22,22,29,0.92)); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+        .tabbar { display: flex; align-items: flex-end; height: 34px; padding: 0 14px; gap: 14px; }
+        .lights { display: flex; gap: 7px; align-items: center; height: 100%; }
+        .lights i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+        .lights i:nth-child(1) { background: #5a2b30; }
+        .lights i:nth-child(2) { background: #e5b94a; }
+        .lights i:nth-child(3) { background: #4cc47c; }
+        .tab { background: var(--panel-2); border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0; padding: 6px 16px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .tab::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+        .toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: var(--panel-2); }
+        .toolbar .ico { color: var(--muted); font-size: 16px; width: 22px; text-align: center; user-select: none; }
+        .urlbar { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0 12px; }
+        .urlbar:focus-within { border-color: var(--accent); }
+        .urlbar svg { flex: none; color: #4cc47c; }
+        #searchInput { flex: 1; background: none; border: none; outline: none; color: var(--text); font-size: 13px; padding: 9px 0; font-family: inherit; }
+        #searchInput::placeholder { color: var(--muted); }
+        .avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+
+        /* ---------- sidebar (filled by games.js) ---------- */
+        .sidebar { position: fixed; left: 0; top: 52px; bottom: 0; width: 64px; z-index: 1000; background: var(--sidebar-bg, rgba(22,22,29,0.85)); backdrop-filter: blur(10px); border-right: 1px solid var(--border); padding: 12px 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+        .sidebar::-webkit-scrollbar { width: 5px; }
+        .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 3px; }
+        .sidebar-btn { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); min-height: 38px; font-size: 14px; font-weight: 700; border-radius: 8px; cursor: pointer; transition: all .15s ease; font-family: inherit; }
+        .sidebar-btn:hover { background: var(--accent); border-color: var(--accent); }
+        .sidebar-btn.empty { opacity: .3; cursor: default; }
+        .sidebar-btn.empty:hover { background: var(--panel-2); border-color: var(--border); }
+
+        /* ---------- main ---------- */
+        .main-content { position: relative; z-index: 1; margin-left: 64px; padding: 72px 20px 60px; }
+        .hero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 6px 20px 26px; }
+        .logo { width: 56px; height: 56px; border-radius: 16px; background: linear-gradient(135deg, var(--logo-a, #7a6cf5), var(--logo-b, #e8a458)); display: grid; place-items: center; color: #15151c; font-weight: 800; font-size: 16px; box-shadow: 0 0 40px var(--glow, rgba(122,108,245,.35)); margin-bottom: 18px; }
+        .hero h1 { margin: 0 0 8px; font-size: 22px; }
+        .hero p { margin: 0 0 22px; max-width: 420px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+        .hero-btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+        .btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 700; font-family: inherit; text-decoration: none; cursor: pointer; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); transition: all .15s ease; }
+        .btn:hover { border-color: rgba(255,255,255,.25); }
+        .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .btn.primary:hover { background: var(--accent-hover); }
+
+        .letter-section { max-width: 860px; margin: 0 auto 28px; padding: 18px 22px 22px; min-height: 100px; background: var(--section-bg, rgba(28,28,38,0.82)); border: 1px solid var(--border); border-radius: 14px; backdrop-filter: blur(6px); }
+        .letter-section.empty { opacity: .45; }
+        .letter-header { font-size: 26px; font-weight: 800; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+        .buttons-container { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+        .empty-message { color: var(--muted); font-style: italic; text-align: center; padding: 16px; }
+        input[type="button"] { background: var(--panel-2); border: 1px solid var(--border); padding: 13px 18px; font-size: 14px; font-weight: 600; border-radius: 8px; cursor: pointer; transition: all .15s ease; width: 100%; color: var(--text); text-align: left; font-family: inherit; }
+        input[type="button"]:hover { background: var(--accent); border-color: var(--accent); transform: translateY(-1px); }
+        input[type="button"]:active { transform: translateY(0); }
+
+
+        .sidebar-btn.chat-btn { display: grid; place-items: center; color: #c9c9d6; padding: 0; }
+        .sidebar-btn.fav-btn { color: #f2a93b; }
+        .sidebar-btn.chat-btn:hover { color: #fff; }
+        .sidebar-btn.chat-btn svg { display: block; }
+        #chat-overlay { position: fixed; inset: 0; z-index: 3000; background: #0B0C10; display: none; }
+        #chat-overlay iframe { width: 100%; height: 100%; border: 0; display: block; background: #0B0C10; }
+        #chat-close { position: absolute; top: 10px; right: 14px; width: 32px; height: 32px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: #26272E; color: #EDEDF2; font-size: 15px; cursor: pointer; z-index: 2; font-family: inherit; }
+        #chat-close:hover { background: #EF5B5B; border-color: #EF5B5B; }
+        #chat-status { position: absolute; inset: 0; display: grid; place-items: center; color: #9497A6; font-size: 14px; text-align: center; padding: 20px; pointer-events: none; }
+
+
+        .game-row { position: relative; width: 100%; }
+        .game-row input[type="button"] { padding-right: 56px; }
+        .fav-star { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #6b6b7c; cursor: pointer; padding: 6px; display: grid; place-items: center; border-radius: 6px; }
+        .fav-star svg { display: block; fill: none; }
+        .fav-star:hover { color: #f2a93b; }
+        .fav-star.on { color: #f2a93b; }
+        .fav-star.on svg { fill: currentColor; }
+        #fav-section .letter-header span { color: #f2a93b; }
+
+        #toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: #26272E; color: #EDEDF2; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 11px 16px; font-size: 13px; z-index: 4000; max-width: 90vw; display: none; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+
+        /* ---------- settings ---------- */
+        #settings-btn { width: 34px; height: 34px; flex: none; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--muted); cursor: pointer; display: grid; place-items: center; transition: all .15s ease; }
+        #settings-btn:hover, #settings-btn.open { color: var(--text); border-color: var(--accent); }
+        #settings-panel { position: fixed; top: 58px; right: 14px; width: 270px; max-width: calc(100vw - 28px); max-height: calc(100vh - 72px); overflow-y: auto; z-index: 1200; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.5); display: none; }
+        .sp-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 14px; margin-bottom: 12px; }
+        #settings-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 6px; }
+        #settings-close:hover { color: var(--text); background: var(--panel-2); }
+        .sp-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .sp-label { font-size: 13px; color: var(--text); }
+        .sp-right { display: flex; align-items: center; gap: 8px; }
+        #theme-hex { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); text-transform: uppercase; }
+        #theme-swatch { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); padding: 0; cursor: pointer; background: var(--accent); transition: transform .15s ease; }
+        #theme-swatch:hover { transform: scale(1.08); }
+        #theme-swatch.open { border-color: #fff; }
+        #wheel-wrap { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+        .wheel-box { position: relative; width: 180px; height: 180px; margin: 0 auto; touch-action: none; }
+        #wheel { display: block; width: 180px; height: 180px; border-radius: 50%; cursor: crosshair; }
+        #wheel-handle { position: absolute; width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.5); transform: translate(-50%, -50%); pointer-events: none; }
+        .sp-slider { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 12px; color: var(--muted); }
+        .sp-slider input { flex: 1; accent-color: var(--accent); }
+        .sp-reset { margin-top: 12px; display: flex; justify-content: flex-end; }
+
+        /* ---------- preferences ---------- */
+        .pref-wrap { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+        #pref-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; background: var(--panel-2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 9px 12px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: border-color .15s ease; }
+        #pref-toggle:hover, #pref-toggle.open { border-color: var(--accent); }
+        #pref-toggle svg { transition: transform .15s ease; }
+        #pref-toggle.open svg { transform: rotate(180deg); }
+        #pref-list { display: none; flex-direction: column; gap: 2px; margin-top: 10px; }
+        .pref-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 7px 4px; font-size: 13px; border-radius: 6px; cursor: pointer; user-select: none; }
+        .pref-row:hover { background: var(--panel-2); }
+        .pref-row input { position: absolute; opacity: 0; pointer-events: none; }
+        .pref-row .cb { width: 18px; height: 18px; flex: none; border-radius: 5px; border: 1.5px solid var(--muted); background: var(--bg); display: grid; place-items: center; transition: all .15s ease; }
+        .pref-row .cb::after { content: ""; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); opacity: 0; }
+        .pref-row input:checked + .cb { background: var(--accent); border-color: var(--accent); }
+        .pref-row input:checked + .cb::after { opacity: 1; }
+        .pref-row input:focus-visible + .cb { box-shadow: 0 0 0 3px rgba(109,106,242,.35); }
+
+        /* what each preference does */
+        body.pref-hide-empty .letter-section.empty, body.pref-hide-empty .sidebar-btn.empty { display: none !important; }
+        body.pref-hide-fav #fav-section, body.pref-hide-fav .sidebar-btn[data-fav] { display: none !important; }
+        body.pref-hide-pop #pop-section { display: none !important; }
+        body.pref-hide-continue .pref-continue { display: none !important; }
+        body.pref-hide-chat .sidebar-btn[data-chat], body.pref-hide-chat #chat-overlay { display: none !important; }
+        body.pref-simple #bg { display: none !important; }
+        body.pref-simple *, body.pref-simple *::after { backdrop-filter: none !important; box-shadow: none !important; transition: none !important; animation: none !important; }
+        body.pref-simple .logo { background: var(--accent); }
+        body.pref-simple .chrome, body.pref-simple .sidebar { background: var(--panel); }
+        body.pref-simple .letter-section { background: var(--panel); }
+        body.pref-simple input[type="button"]:hover { transform: none; }
+
+        .hero-open { margin: 2px 0 18px; }
+        .hero-open .btn { padding: 12px 22px; font-size: 14px; }
+        #browser-overlay { position: fixed; inset: 0; z-index: 3500; background: #0B0C10; display: none; }
+        #browser-overlay iframe { width: 100%; height: 100%; border: 0; display: block; background: #0B0C10; }
+        #browser-status { position: absolute; inset: 0; display: grid; place-items: center; color: #9497A6; font-size: 14px; text-align: center; padding: 20px; pointer-events: none; }
+        @media (max-width: 768px) {
+            .sidebar { width: 52px; padding: 10px 5px; }
+            .main-content { margin-left: 52px; padding-left: 12px; padding-right: 12px; }
+            .letter-section { padding: 14px; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="bg"></canvas>
+    <div id="toast"></div>
+
+    <div class="chrome">
+
+        <div class="toolbar">
+            <label class="urlbar">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+                <input type="text" placeholder="Search games..." id="searchInput" autocomplete="off">
+            </label>
+            <button id="settings-btn" type="button" title="Settings" aria-label="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+        </div>
+    </div>
+
+    <div id="settings-panel">
+        <div class="sp-head"><span>Settings</span><button id="settings-close" type="button" title="Close">&#10005;</button></div>
+        <div class="sp-row">
+            <span class="sp-label">Theme color</span>
+            <span class="sp-right">
+                <span id="theme-hex">#6D6AF2</span>
+                <button id="theme-swatch" type="button" title="Pick a color"></button>
+            </span>
+        </div>
+        <div id="wheel-wrap">
+            <div class="wheel-box">
+                <canvas id="wheel"></canvas>
+                <div id="wheel-handle"></div>
+            </div>
+            <label class="sp-slider">Brightness <input type="range" id="theme-bright" min="35" max="100" value="95"></label>
+            <div class="sp-reset"><button class="btn" id="theme-reset" type="button">Reset to default</button></div>
+        </div>
+        <div class="pref-wrap">
+            <button id="pref-toggle" type="button">Preferences <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+            <div id="pref-list">
+                <label class="pref-row"><input type="checkbox" data-pref="simple"><span class="cb"></span><span>Simple UI (flat, no effects)</span></label>
+                <label class="pref-row"><input type="checkbox" data-pref="hideEmpty"><span class="cb"></span><span>Hide groups with no games</span></label>
+                <label class="pref-row"><input type="checkbox" data-pref="hideFav"><span class="cb"></span><span>Hide Favorites</span></label>
+                <label class="pref-row"><input type="checkbox" data-pref="hideContinue"><span class="cb"></span><span>Hide Continue playing</span></label>
+                <label class="pref-row"><input type="checkbox" data-pref="hidePop"><span class="cb"></span><span>Hide Popular Games</span></label>
+                <label class="pref-row"><input type="checkbox" data-pref="hideChat"><span class="cb"></span><span>Hide chatroom</span></label>
+            </div>
+        </div>
+    </div>
+
+    <div id="browser-overlay">
+        <div id="browser-status">Loading browser...</div>
+    </div>
+
+    <div id="chat-overlay">
+        <div id="chat-status">Loading chat...</div>
+        <button id="chat-close" title="Close chat">&#10005;</button>
+    </div>
+
+    <div class="sidebar" id="sidebar"></div>
+
+    <div class="main-content">
+        <div class="hero">
+            <div class="logo"><svg width="30" height="30" viewBox="0 0 24 24" fill="#15151c"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.9 9.5 4.25 4.25 0 0 1 17.5 18H7z"/></svg></div>
+            <h1>Nimbus</h1>
+            <div class="hero-open"><button class="btn primary" id="open-browser" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>Open browser</button></div>
+            <div class="hero-btns">
+                <button class="btn primary" id="lolbutton" onclick="loadFallback()">Reload games</button>
+            </div>
+            <p id="games-status" style="margin:14px 0 0;font-size:13px;color:var(--muted);"></p>
+            
+        </div>
+
+        <div class="letter-section" id="fav-section">
+            <div class="letter-header"><span>&#9733;</span> Favorites</div>
+            <div class="buttons-container" id="fav-list"></div>
+        </div>
+        <div class="letter-section" id="pop-section">
+            <div class="letter-header"><span>&#128293;</span> Popular Games</div>
+            <div class="buttons-container" id="pop-list"></div>
+        </div>
+        <div id="no-results" style="display:none;text-align:center;color:var(--muted);padding:40px 0;">No games found.</div>
+        <div id="sections-container"></div>
+    </div>
+
+    <script>
+        function loadFallback() { if (window.loadGames) window.loadGames(true); }
+
+        /* ---------- interactive dot/line background ---------- */
+        (function () {
+            var c = document.getElementById('bg'), ctx = c.getContext('2d');
+            var W, H, pts = [], links = [], mouse = { x: -9999, y: -9999 };
+            window.NIMBUS_COLS = ['109,106,242', '45,212,191'];
+            var R = 170, reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            function init() {
+                var dpr = window.devicePixelRatio || 1;
+                W = window.innerWidth; H = window.innerHeight;
+                c.width = W * dpr; c.height = H * dpr;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                pts = []; links = [];
+                var gap = 85;
+                for (var y = -gap; y < H + gap; y += gap) {
+                    for (var x = -gap; x < W + gap; x += gap) {
+                        var hx = x + (Math.random() - .5) * gap * .8;
+                        var hy = y + (Math.random() - .5) * gap * .8;
+                        pts.push({ hx: hx, hy: hy, x: hx, y: hy, vx: 0, vy: 0,
+                                   k: Math.random() < .5 ? 0 : 1 });
+                    }
+                }
+                var seen = {};
+                pts.forEach(function (p, i) {
+                    var near = pts.map(function (q, j) {
+                        return { j: j, d: (p.hx - q.hx) * (p.hx - q.hx) + (p.hy - q.hy) * (p.hy - q.hy) };
+                    }).filter(function (o) { return o.j !== i; })
+                      .sort(function (a, b) { return a.d - b.d; }).slice(0, 4);
+                    near.forEach(function (o) {
+                        var key = i < o.j ? i + '-' + o.j : o.j + '-' + i;
+                        if (!seen[key]) { seen[key] = 1; links.push([i, o.j]); }
+                    });
+                });
+            }
+
+            function step() {
+                for (var i = 0; i < pts.length; i++) {
+                    var p = pts[i];
+                    var dx = p.x - mouse.x, dy = p.y - mouse.y;
+                    var d = Math.sqrt(dx * dx + dy * dy);
+                    if (d < R && d > 0.1) {
+                        var f = Math.pow(1 - d / R, 2) * 3.2;
+                        p.vx += dx / d * f; p.vy += dy / d * f;
+                    }
+                    p.vx += (p.hx - p.x) * 0.035;
+                    p.vy += (p.hy - p.y) * 0.035;
+                    p.vx *= 0.86; p.vy *= 0.86;
+                    p.x += p.vx; p.y += p.vy;
+                }
+            }
+
+            function draw() {
+                ctx.clearRect(0, 0, W, H);
+                ctx.lineWidth = 1;
+                for (var k = 0; k < links.length; k++) {
+                    var a = pts[links[k][0]], b = pts[links[k][1]];
+                    var mx = (a.x + b.x) / 2 - mouse.x, my = (a.y + b.y) / 2 - mouse.y;
+                    var glow = Math.max(0, 1 - Math.sqrt(mx * mx + my * my) / (R * 1.6));
+                    ctx.strokeStyle = 'rgba(' + window.NIMBUS_COLS[a.k] + ',' + (0.18 + glow * 0.4) + ')';
+                    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+                }
+                for (var i = 0; i < pts.length; i++) {
+                    var p = pts[i];
+                    ctx.fillStyle = 'rgba(' + window.NIMBUS_COLS[p.k] + ',0.75)';
+                    ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, 6.2832); ctx.fill();
+                }
+            }
+
+            function loop() { if (!window.NIMBUS_SIMPLE) { step(); draw(); } requestAnimationFrame(loop); }
+
+            window.addEventListener('mousemove', function (e) { mouse.x = e.clientX; mouse.y = e.clientY; });
+            window.addEventListener('touchmove', function (e) { var t = e.touches[0]; mouse.x = t.clientX; mouse.y = t.clientY; }, { passive: true });
+            window.addEventListener('mouseleave', function () { mouse.x = mouse.y = -9999; });
+            window.addEventListener('resize', init);
+
+            window.nimbusRedraw = function () { if (reduce) draw(); };
+            init();
+            if (reduce) draw(); else loop();
+        })();
+    </script>
+    <script>
+        /* ---------- works even where cdn.jsdelivr.net is blocked ---------- */
+        (function () {
+            var CDN = 'https://cdn.jsdelivr.net/gh/bubbls/ugs-singlefile@main/games.js';
+            var container = document.getElementById('sections-container');
+            var statusEl = document.getElementById('games-status');
+            var hasServer = function () { return !!(window.google && google.script && google.script.run); };
+
+            // If a game file can't be fetched from jsDelivr, get it through Apps Script instead.
+            var origFetch = window.fetch.bind(window);
+            var toastEl = document.getElementById('toast'), toastTimer;
+            function toast(t) {
+                toastEl.textContent = t;
+                toastEl.style.display = 'block';
+                clearTimeout(toastTimer);
+                toastTimer = setTimeout(function () { toastEl.style.display = 'none'; }, 7000);
+            }
+            function viaServer(url) {
+                return new Promise(function (resolve, reject) {
+                    google.script.run
+                        .withSuccessHandler(function (t) {
+                            if (t === null || t === undefined || t === '') {
+                                reject(new Error('The server returned an empty file (it may be too large to relay).'));
+                                return;
+                            }
+                            resolve(new Response(t, { status: 200, headers: { 'Content-Type': 'text/html' } }));
+                        })
+                        .withFailureHandler(function (e) { reject(new Error((e && e.message) || String(e))); })
+                        .proxyGet(url);
+                });
+            }
+            window.fetch = function (input, init) {
+                var url = typeof input === 'string' ? input : ((input && input.url) || '');
+                var p = origFetch(input, init);
+                if (url.indexOf('cdn.jsdelivr.net/gh/bubbls/') === -1 || !hasServer()) return p;
+                return p.then(function (r) { return r.ok ? r : viaServer(url); }, function () { return viaServer(url); })
+                    .catch(function (err) {
+                        toast("Couldn't open that game: " + err.message);
+                        throw err;
+                    });
+            };
+
+            var serverError = '';
+            function status(t) { if (statusEl) { statusEl.textContent = t; statusEl.style.display = t ? '' : 'none'; } }
+            function runCode(code) {
+                var s = document.createElement('script');
+                s.textContent = code;
+                document.body.appendChild(s);
+                status('');
+            }
+            function viaCdn() {
+                var s = document.createElement('script');
+                s.src = CDN + (CDN.indexOf('?') < 0 ? '?t=' + Date.now() : '');
+                s.onload = function () { status(''); };
+                s.onerror = function () {
+                    status("Couldn't load the games list. " +
+                        (serverError ? 'Server said: ' + serverError + ' ' : '') +
+                        'Direct download was blocked too. Press Reload games to retry.');
+                };
+                document.body.appendChild(s);
+            }
+            window.loadGames = function (force) {
+                if (container.children.length) return;
+                status('Loading games...');
+                if (!hasServer()) { viaCdn(); return; }
+                google.script.run
+                    .withSuccessHandler(function (code) { if (!container.children.length) runCode(code); })
+                    .withFailureHandler(function (e) { serverError = (e && e.message) || String(e); viaCdn(); })
+                    .getGamesJs(!!force);
+            };
+            window.loadGames(false);
+        })();
+    </script>
+    <script>
+        /* ---------- strip "cl" prefix + favorites + search ---------- */
+        (function () {
+            var input = document.getElementById('searchInput');
+            var container = document.getElementById('sections-container');
+            var noRes = document.getElementById('no-results');
+            var favSec = document.getElementById('fav-section');
+            var favList = document.getElementById('fav-list');
+            var popSec = document.getElementById('pop-section');
+            var popList = document.getElementById('pop-list');
+            // Edit this list to change the Popular Games (use the original file names).
+            var POPULAR = ['clgdlite', 'clsuperhot', 'cl1v1lol', 'clslope', 'clFNAF', 'clamaze'];
+            var KEY = 'nimbus-favs';
+            var STAR = '<svg width="18" height="18" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.9 6.1 6.6.9-4.8 4.6 1.2 6.6L12 17.5l-5.9 3.2 1.2-6.6L2.5 9.5l6.6-.9z"/></svg>';
+
+            var favs = [];
+            try { favs = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) {}
+            if (!Array.isArray(favs)) favs = [];
+            function saveFavs() { try { localStorage.setItem(KEY, JSON.stringify(favs)); } catch (e) {} }
+            function isFav(k) { return favs.indexOf(k) !== -1; }
+
+            var origs = {}; // file name -> its button in the main list
+
+            function norm(t) { return t.toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+            function makeStar(k) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'fav-star';
+                b.dataset.key = k;
+                b.innerHTML = STAR;
+                b.addEventListener('click', function (e) { e.stopPropagation(); toggleFav(k); });
+                return b;
+            }
+            function toggleFav(k) {
+                var i = favs.indexOf(k);
+                if (i === -1) favs.push(k); else favs.splice(i, 1);
+                saveFavs();
+                renderFavs();
+                filter();
+            }
+            function updateStars() {
+                var stars = document.querySelectorAll('.fav-star');
+                for (var i = 0; i < stars.length; i++) {
+                    var on = isFav(stars[i].dataset.key);
+                    stars[i].classList.toggle('on', on);
+                    stars[i].title = on ? 'Remove from favorites' : 'Add to favorites';
+                }
+            }
+
+            function cleanNames() {
+                var btns = container.querySelectorAll('input[type="button"]');
+                for (var i = 0; i < btns.length; i++) {
+                    var b = btns[i];
+                    if (b.dataset.orig !== undefined) continue;
+                    b.dataset.orig = b.value;
+                    b.value = b.value.replace(/^cl/i, '');
+                    b.dataset.search = norm(b.value);
+                    var row = document.createElement('div');
+                    row.className = 'game-row';
+                    b.parentNode.insertBefore(row, b);
+                    row.appendChild(b);
+                    row.appendChild(makeStar(b.dataset.orig));
+                    if (!origs[b.dataset.orig]) origs[b.dataset.orig] = b;
+                }
+            }
+
+            function renderFavs() {
+                favList.innerHTML = '';
+                if (!favs.length) {
+                    var hint = document.createElement('div');
+                    hint.className = 'empty-message';
+                    hint.textContent = 'Tap the star on any game to add it here.';
+                    favList.appendChild(hint);
+                } else {
+                    favs.forEach(function (k) {
+                        var o = origs[k];
+                        if (!o) return;
+                        var row = document.createElement('div');
+                        row.className = 'game-row';
+                        var b = document.createElement('input');
+                        b.type = 'button';
+                        b.value = o.value;
+                        b.dataset.search = o.dataset.search;
+                        b.addEventListener('click', function () { o.click(); });
+                        row.appendChild(b);
+                        row.appendChild(makeStar(k));
+                        favList.appendChild(row);
+                    });
+                }
+                updateStars();
+            }
+
+            function renderPopular() {
+                popList.innerHTML = '';
+                POPULAR.forEach(function (k) {
+                    var o = origs[k];
+                    if (!o) return;
+                    var row = document.createElement('div');
+                    row.className = 'game-row';
+                    var b = document.createElement('input');
+                    b.type = 'button';
+                    b.value = o.value;
+                    b.dataset.search = o.dataset.search;
+                    b.addEventListener('click', function () { o.click(); });
+                    row.appendChild(b);
+                    row.appendChild(makeStar(k));
+                    popList.appendChild(row);
+                });
+                popSec.style.display = popList.children.length ? '' : 'none';
+                updateStars();
+            }
+
+            function matches(b, q, raw) {
+                return !q || (b.dataset.search || '').indexOf(q) !== -1 ||
+                       b.value.toLowerCase().indexOf(raw) !== -1;
+            }
+
+            function filter() {
+                var raw = input.value.trim().toLowerCase();
+                var q = norm(raw);
+                var sections = container.querySelectorAll('.letter-section');
+                var total = 0;
+                for (var i = 0; i < sections.length; i++) {
+                    var sec = sections[i], shown = 0;
+                    var btns = sec.querySelectorAll('input[type="button"]');
+                    for (var j = 0; j < btns.length; j++) {
+                        var b = btns[j];
+                        var m = matches(b, q, raw);
+                        (b.closest('.game-row') || b).style.display = m ? '' : 'none';
+                        if (m) shown++;
+                    }
+                    var msg = sec.querySelector('.empty-message');
+                    sec.style.display = (q && !shown) ? 'none' : '';
+                    if (msg) msg.style.display = q ? 'none' : '';
+                    total += shown;
+                }
+                // favorites section
+                var rows = favList.querySelectorAll('.game-row'), shownF = 0;
+                for (var r = 0; r < rows.length; r++) {
+                    var fb = rows[r].querySelector('input[type="button"]');
+                    var fm = matches(fb, q, raw);
+                    rows[r].style.display = fm ? '' : 'none';
+                    if (fm) shownF++;
+                }
+                var fhint = favList.querySelector('.empty-message');
+                if (fhint) fhint.style.display = q ? 'none' : '';
+                favSec.style.display = q ? (shownF ? '' : 'none') : '';
+                // popular section
+                var prows = popList.querySelectorAll('.game-row'), shownP = 0;
+                for (var pr = 0; pr < prows.length; pr++) {
+                    var pb = prows[pr].querySelector('input[type="button"]');
+                    var pm = matches(pb, q, raw);
+                    prows[pr].style.display = pm ? '' : 'none';
+                    if (pm) shownP++;
+                }
+                popSec.style.display = !prows.length ? 'none' : (q ? (shownP ? '' : 'none') : '');
+                noRes.style.display = (q && sections.length && !total && !shownF && !shownP) ? '' : 'none';
+            }
+
+            function refresh() { cleanNames(); renderFavs(); renderPopular(); filter(); }
+
+            var timer;
+            input.addEventListener('input', function () {
+                filter();
+                if (input.value.trim() && window.scrollY < favSec.offsetTop - 120) {
+                    favSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+
+            new MutationObserver(function () {
+                clearTimeout(timer);
+                timer = setTimeout(refresh, 30);
+            }).observe(container, { childList: true, subtree: true });
+
+            refresh();
+        })();
+    </script>
+    <script>
+        /* ---------- remove "0" section, turn sidebar "0" into chat button ---------- */
+        (function () {
+            var sidebar = document.getElementById('sidebar');
+            var container = document.getElementById('sections-container');
+            var overlay = document.getElementById('chat-overlay');
+            var statusEl = document.getElementById('chat-status');
+            var frame = null;
+
+            var ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+
+            function openChat() {
+                overlay.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+                if (frame) { post({ type: 'chat-visible', visible: true }); return; }
+                statusEl.style.display = 'grid';
+                statusEl.textContent = 'Loading chat...';
+                if (!(window.google && google.script && google.script.run)) {
+                    statusEl.textContent = 'Chat can only load when this page is running as a Google Apps Script web app.';
+                    return;
+                }
+                google.script.run
+                    .withSuccessHandler(function (html) {
+                        frame = document.createElement('iframe');
+                        frame.srcdoc = html;
+                        window.addEventListener('message', bridge);
+                        overlay.insertBefore(frame, overlay.firstChild);
+                        statusEl.style.display = 'none';
+                    })
+                    .withFailureHandler(function (err) {
+                        statusEl.textContent = 'Could not load chat: ' + (err && err.message ? err.message : err);
+                    })
+                    .getChatHtml();
+            }
+            function post(msg) {
+                if (frame && frame.contentWindow) frame.contentWindow.postMessage(msg, '*');
+            }
+            function sendTheme() { post({ type: 'chat-theme', vars: window.NIMBUS_CHAT_THEME || null }); }
+            window.addEventListener('nimbus-theme', sendTheme);
+            // The chat runs in an iframe, which can't call Apps Script directly, so we relay for it.
+            function bridge(e) {
+                if (!frame || e.source !== frame.contentWindow) return;
+                var d = e.data || {};
+                if (d.type === 'chat-ready') { sendTheme(); return; }
+                if (d.type !== 'rpc' || typeof d.fn !== 'string' || d.fn.indexOf('chat') !== 0) return;
+                google.script.run
+                    .withSuccessHandler(function (v) { post({ type: 'rpc-result', id: d.id, ok: true, value: v }); })
+                    .withFailureHandler(function (err) { post({ type: 'rpc-result', id: d.id, ok: false, error: (err && err.message) ? err.message : String(err) }); })
+                    [d.fn].apply(null, d.args || []);
+            }
+            function closeChat() {
+                overlay.style.display = 'none';
+                document.body.style.overflow = '';
+                post({ type: 'chat-visible', visible: false });
+            }
+            document.getElementById('chat-close').addEventListener('click', closeChat);
+            document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeChat(); });
+
+            var FAVSVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5l2.9 6.1 6.6.9-4.8 4.6 1.2 6.6L12 17.5l-5.9 3.2 1.2-6.6L2.5 9.5l6.6-.9z"/></svg>';
+            function addFavBtn() {
+                if (sidebar.querySelector('[data-fav]')) return;
+                var chat = sidebar.querySelector('[data-chat]');
+                if (!chat) return;
+                var fb = document.createElement('button');
+                fb.className = 'sidebar-btn chat-btn fav-btn';
+                fb.dataset.fav = '1';
+                fb.title = 'Favorites';
+                fb.innerHTML = FAVSVG;
+                fb.addEventListener('click', function () {
+                    document.getElementById('fav-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+                chat.insertAdjacentElement('afterend', fb);
+            }
+            function fix() {
+                var sec = document.getElementById('section-0');
+                if (sec) sec.remove();
+                var btns = sidebar.querySelectorAll('.sidebar-btn');
+                for (var i = 0; i < btns.length; i++) {
+                    var b = btns[i];
+                    if (!b.dataset.chat && b.textContent.trim() === '0') {
+                        var nb = b.cloneNode(false);
+                        nb.dataset.chat = '1';
+                        nb.className = 'sidebar-btn chat-btn';
+                        nb.title = 'Open chatroom';
+                        nb.innerHTML = ICON;
+                        nb.addEventListener('click', openChat);
+                        b.parentNode.replaceChild(nb, b);
+                    }
+                }
+                addFavBtn();
+            }
+            new MutationObserver(fix).observe(sidebar, { childList: true });
+            new MutationObserver(fix).observe(container, { childList: true });
+            fix();
+        })();
+    </script>
+    <script>
+        /* ---------- settings: theme color wheel ---------- */
+        (function () {
+            var KEY = 'nimbus-theme';
+            var DEFAULT = { h: 241, s: 0.56, v: 0.95 };   // matches the built-in indigo
+            var rootStyle = document.documentElement.style;
+            var btn = document.getElementById('settings-btn');
+            var panel = document.getElementById('settings-panel');
+            var swatch = document.getElementById('theme-swatch');
+            var hexEl = document.getElementById('theme-hex');
+            var wrap = document.getElementById('wheel-wrap');
+            var canvas = document.getElementById('wheel');
+            var handle = document.getElementById('wheel-handle');
+            var slider = document.getElementById('theme-bright');
+            var SIZE = 180, R = SIZE / 2;
+            var ctx = canvas.getContext('2d');
+            var dpr = window.devicePixelRatio || 1;
+            canvas.width = SIZE * dpr; canvas.height = SIZE * dpr;
+
+            var theme = null;                       // null = built-in default
+            var cur = { h: DEFAULT.h, s: DEFAULT.s, v: DEFAULT.v };
+
+            function hsv2rgb(h, s, v) {
+                var c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c, r = 0, g = 0, b = 0;
+                if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; } else if (h < 180) { g = c; b = x; }
+                else if (h < 240) { g = x; b = c; } else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+                return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+            }
+            function hsl2rgb(h, s, l) {
+                var a = s * Math.min(l, 1 - l);
+                function f(n) { var k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }
+                return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+            }
+            function hex(rgb) { return '#' + rgb.map(function (c) { return ('0' + c.toString(16)).slice(-2); }).join(''); }
+            function hsla(h, s, l, a) { return 'hsla(' + Math.round(h) + ',' + (s * 100).toFixed(1) + '%,' + (l * 100).toFixed(1) + '%,' + a + ')'; }
+            function hslc(h, s, l) { return 'hsl(' + Math.round(h) + ',' + (s * 100).toFixed(1) + '%,' + (l * 100).toFixed(1) + '%)'; }
+
+            var VARS = ['--accent', '--accent-hover', '--bg', '--panel', '--panel-2', '--chrome-bg', '--sidebar-bg', '--section-bg', '--logo-a', '--logo-b', '--glow'];
+
+            function applyTheme(t) {
+                if (!t) {
+                    VARS.forEach(function (v) { rootStyle.removeProperty(v); });
+                    window.NIMBUS_COLS = ['109,106,242', '45,212,191'];
+                    window.NIMBUS_CHAT_THEME = null;
+                    swatch.style.background = '';
+                    hexEl.textContent = '#6D6AF2';
+                } else {
+                    var acc = hsv2rgb(t.h, t.s, t.v);
+                    var hover = acc.map(function (c) { return Math.round(c + (255 - c) * 0.2); });
+                    var bs = 0.14 * Math.min(1, t.s * 2);       // greys stay neutral
+                    var second = hsl2rgb((t.h + 140) % 360, 0.7, 0.5);
+                    rootStyle.setProperty('--accent', hex(acc));
+                    rootStyle.setProperty('--accent-hover', hex(hover));
+                    rootStyle.setProperty('--bg', hslc(t.h, bs, 0.095));
+                    rootStyle.setProperty('--panel', hslc(t.h, bs, 0.125));
+                    rootStyle.setProperty('--panel-2', hslc(t.h, bs * 0.95, 0.155));
+                    rootStyle.setProperty('--chrome-bg', hsla(t.h, bs, 0.095, 0.92));
+                    rootStyle.setProperty('--sidebar-bg', hsla(t.h, bs, 0.095, 0.85));
+                    rootStyle.setProperty('--section-bg', hsla(t.h, bs, 0.125, 0.82));
+                    rootStyle.setProperty('--logo-a', hex(hover));
+                    rootStyle.setProperty('--logo-b', hslc((t.h + 140) % 360, 0.8, 0.62));
+                    rootStyle.setProperty('--glow', 'rgba(' + acc.join(',') + ',.35)');
+                    window.NIMBUS_COLS = [acc.join(','), second.join(',')];
+                    window.NIMBUS_CHAT_THEME = {
+                        '--bg-page': hslc(t.h, bs, 0.055),
+                        '--sidebar-bg': hslc(t.h, bs, 0.10),
+                        '--sidebar-bg-2': hslc(t.h, bs, 0.125),
+                        '--main-bg': hslc(t.h, bs, 0.115),
+                        '--surface': hslc(t.h, bs, 0.16),
+                        '--surface-2': hslc(t.h, bs, 0.19),
+                        '--accent-indigo': hex(acc)
+                    };
+                    swatch.style.background = hex(acc);
+                    hexEl.textContent = hex(acc);
+                }
+                if (window.nimbusRedraw) window.nimbusRedraw();
+                window.dispatchEvent(new Event('nimbus-theme'));
+            }
+            function save() {
+                try {
+                    if (theme) localStorage.setItem(KEY, JSON.stringify(theme));
+                    else localStorage.removeItem(KEY);
+                } catch (e) {}
+            }
+
+            // ----- the wheel -----
+            function drawWheel() {
+                var w = canvas.width, h = canvas.height, cx = w / 2, cy = h / 2, r = w / 2;
+                var img = ctx.createImageData(w, h), d = img.data;
+                for (var y = 0; y < h; y++) {
+                    for (var x = 0; x < w; x++) {
+                        var dx = x + 0.5 - cx, dy = y + 0.5 - cy, dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist > r) continue;
+                        var hue = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+                        var c = hsv2rgb(hue, dist / r, cur.v), i = (y * w + x) * 4;
+                        d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+                    }
+                }
+                ctx.putImageData(img, 0, 0);
+            }
+            function placeHandle() {
+                var ang = cur.h * Math.PI / 180;
+                handle.style.left = (R + Math.cos(ang) * cur.s * R) + 'px';
+                handle.style.top = (R + Math.sin(ang) * cur.s * R) + 'px';
+            }
+            function pick(e) {
+                var rect = canvas.getBoundingClientRect();
+                var dx = e.clientX - rect.left - R, dy = e.clientY - rect.top - R;
+                var dist = Math.min(Math.sqrt(dx * dx + dy * dy), R);
+                cur.h = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+                cur.s = dist / R;
+                theme = { h: cur.h, s: cur.s, v: cur.v };
+                applyTheme(theme); placeHandle(); save();
+            }
+            var dragging = false;
+            canvas.addEventListener('pointerdown', function (e) {
+                dragging = true;
+                try { canvas.setPointerCapture(e.pointerId); } catch (x) {}
+                pick(e);
+            });
+            canvas.addEventListener('pointermove', function (e) { if (dragging) pick(e); });
+            canvas.addEventListener('pointerup', function () { dragging = false; });
+            canvas.addEventListener('pointercancel', function () { dragging = false; });
+
+            slider.addEventListener('input', function () {
+                cur.v = slider.value / 100;
+                drawWheel();
+                theme = { h: cur.h, s: cur.s, v: cur.v };
+                applyTheme(theme); save();
+            });
+            document.getElementById('theme-reset').addEventListener('click', function () {
+                theme = null;
+                cur = { h: DEFAULT.h, s: DEFAULT.s, v: DEFAULT.v };
+                slider.value = Math.round(cur.v * 100);
+                drawWheel(); placeHandle();
+                applyTheme(null); save();
+            });
+
+            // ----- open / close -----
+            function showWheel(show) {
+                wrap.style.display = show ? 'block' : 'none';
+                swatch.classList.toggle('open', show);
+                if (show) { slider.value = Math.round(cur.v * 100); drawWheel(); placeHandle(); }
+            }
+            function openPanel(open) {
+                panel.style.display = open ? 'block' : 'none';
+                btn.classList.toggle('open', open);
+                if (!open) showWheel(false);          // wheel only appears when the preview is clicked
+            }
+            btn.addEventListener('click', function () { openPanel(panel.style.display !== 'block'); });
+            document.getElementById('settings-close').addEventListener('click', function () { openPanel(false); });
+            swatch.addEventListener('click', function () { showWheel(wrap.style.display !== 'block'); });
+            document.addEventListener('mousedown', function (e) {
+                if (panel.style.display !== 'block') return;
+                if (panel.contains(e.target) || btn.contains(e.target)) return;
+                openPanel(false);
+            });
+            document.addEventListener('keydown', function (e) { if (e.key === 'Escape') openPanel(false); });
+
+            // ----- restore saved theme -----
+            try {
+                var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+                if (saved && isFinite(saved.h) && isFinite(saved.s) && isFinite(saved.v)) {
+                    theme = { h: +saved.h, s: Math.min(1, Math.max(0, +saved.s)), v: Math.min(1, Math.max(0.35, +saved.v)) };
+                    cur = { h: theme.h, s: theme.s, v: theme.v };
+                    applyTheme(theme);
+                }
+            } catch (e) {}
+        })();
+    </script>
+    <script>
+        /* ---------- settings: preferences ---------- */
+        (function () {
+            var KEY = 'nimbus-prefs';
+            var CLASSES = { simple: 'pref-simple', hideEmpty: 'pref-hide-empty', hideFav: 'pref-hide-fav',
+                            hideContinue: 'pref-hide-continue', hidePop: 'pref-hide-pop', hideChat: 'pref-hide-chat' };
+            var state = {};
+            try { state = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) {}
+            var toggle = document.getElementById('pref-toggle');
+            var list = document.getElementById('pref-list');
+
+            toggle.addEventListener('click', function () {
+                var open = list.style.display !== 'flex';
+                list.style.display = open ? 'flex' : 'none';
+                toggle.classList.toggle('open', open);
+            });
+
+            function apply() {
+                Object.keys(CLASSES).forEach(function (k) { document.body.classList.toggle(CLASSES[k], !!state[k]); });
+                window.NIMBUS_SIMPLE = !!state.simple;
+            }
+            Array.prototype.forEach.call(list.querySelectorAll('input[data-pref]'), function (cb) {
+                cb.checked = !!state[cb.dataset.pref];
+                cb.addEventListener('change', function () {
+                    state[cb.dataset.pref] = cb.checked;
+                    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+                    apply();
+                });
+            });
+
+            // tag any section whose title contains "Continue" so it can be hidden
+            function tagContinue() {
+                var heads = document.querySelectorAll('.letter-header');
+                for (var i = 0; i < heads.length; i++) {
+                    if (/continue/i.test(heads[i].textContent)) heads[i].parentNode.classList.add('pref-continue');
+                }
+            }
+            new MutationObserver(tagContinue).observe(document.querySelector('.main-content'), { childList: true, subtree: true });
+            tagContinue();
+            apply();
+        })();
+    </script>
+    <script>
+        /* ---------- Open browser button ---------- */
+        (function () {
+            var overlay = document.getElementById('browser-overlay');
+            var statusEl = document.getElementById('browser-status');
+            var btn = document.getElementById('open-browser');
+            var frame = null;
+
+            function openBrowser() {
+                overlay.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+                if (frame) return;
+                statusEl.style.display = 'grid';
+                statusEl.textContent = 'Loading browser...';
+                if (!(window.google && google.script && google.script.run)) {
+                    statusEl.textContent = 'The browser can only load when this page is running as a Google Apps Script web app.';
+                    return;
+                }
+                google.script.run
+                    .withSuccessHandler(function (html) {
+                        frame = document.createElement('iframe');
+                        frame.srcdoc = html;
+                        overlay.insertBefore(frame, overlay.firstChild);
+                        statusEl.style.display = 'none';
+                    })
+                    .withFailureHandler(function (err) {
+                        statusEl.textContent = 'Could not load the browser: ' + (err && err.message ? err.message : err);
+                    })
+                    .getBrowserHtml();
+            }
+            function closeBrowser() {
+                overlay.style.display = 'none';
+                document.body.style.overflow = '';
+            }
+            btn.addEventListener('click', openBrowser);
+            // the browser's red dot asks us to close it when it is the last window
+            window.addEventListener('message', function (e) {
+                if (frame && e.source === frame.contentWindow && e.data && e.data.type === 'browser-close') closeBrowser();
+            });
+            document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && overlay.style.display === 'block') closeBrowser(); });
+        })();
+    </script>
+</body>
+</html>
