@@ -131,6 +131,7 @@ body{
 .msg-head{display:flex; align-items:baseline; gap:8px;}
 .msg-head .who{font-weight:600; font-size:14px;}
 .msg-head .time{font-size:11px; color:var(--text-faint);}
+.msg-img{display:block; max-width:min(320px,100%); max-height:260px; border-radius:8px; margin:4px 0; background:var(--surface);}
 .msg-text{font-size:14px; line-height:1.5; color:var(--text-primary); word-wrap:break-word; white-space:pre-wrap;}
 .edited-tag{font-size:10.5px; color:var(--text-faint); font-style:italic; margin-left:4px;}
 .empty-hint{margin:auto; text-align:center; color:var(--text-faint); font-size:13px; padding:40px;}
@@ -275,7 +276,7 @@ body{
 <div class="modal-overlay" id="avOverlay" style="display:none;">
   <div class="modal-box">
     <h3>Profile picture</h3>
-    <p class="modal-sub">Choose an image from your device. It is cropped to a square and shown next to your messages.</p>
+    <p class="modal-sub">Choose an image from your device (PNG, JPG, WebP, or a small animated GIF). It is cropped to a square and shown next to your messages.</p>
     <div class="av-preview" id="avPreview"></div>
     <p class="modal-error" id="avError"></p>
     <input type="file" id="avFile" accept="image/*" style="display:none;">
@@ -615,11 +616,18 @@ userAvatar.addEventListener('click', ()=>{
 });
 document.getElementById('avClose').addEventListener('click', ()=>{ avOverlay.style.display = 'none'; });
 document.getElementById('avChoose').addEventListener('click', ()=>avFile.click());
+const AV_MAX = 46000;   // characters; the sheet cell limit is 50,000
 function resizeImage(file){
   return new Promise((res, rej)=>{
     const r = new FileReader();
     r.onerror = ()=>rej(new Error('Could not read that file.'));
     r.onload = ()=>{
+      if(file.type === 'image/gif'){
+        // animated GIFs are kept exactly as they are, so they have to be small
+        if(r.result.length > AV_MAX){ rej(new Error('That GIF is too big (max about 33 KB). Pick a smaller one, or use a still image.')); return; }
+        res(r.result);
+        return;
+      }
       const img = new Image();
       img.onerror = ()=>rej(new Error('That file is not a usable image.'));
       img.onload = ()=>{
@@ -627,7 +635,10 @@ function resizeImage(file){
         cv.width = cv.height = S;
         const m = Math.min(img.width, img.height);
         cv.getContext('2d').drawImage(img, (img.width-m)/2, (img.height-m)/2, m, m, 0, 0, S, S);
-        res(cv.toDataURL('image/jpeg', 0.82));
+        // PNG/WebP keep transparency; fall back to smaller formats if the result is too large
+        const tries = [ cv.toDataURL('image/png'), cv.toDataURL('image/webp', 0.85), cv.toDataURL('image/jpeg', 0.82), cv.toDataURL('image/jpeg', 0.6) ];
+        const ok = tries.find(t=>t.length <= AV_MAX && /^data:image\/(png|webp|jpeg);/.test(t));
+        if(ok) res(ok); else rej(new Error('That image is too detailed. Try a simpler one.'));
       };
       img.src = r.result;
     };
@@ -807,6 +818,37 @@ function selectChannel(id){
 }
 
 // ---------- messages ----------
+let stickBottom = true;
+// Direct image links (gif, png, jpg, webp), Giphy/Tenor media links and Giphy page links show as pictures.
+function imageSrc(u){
+  const g = u.match(/^https:\/\/giphy\.com\/gifs\/(?:[^\/?#]*-)?([A-Za-z0-9]+)\/?(?:[?#].*)?$/i);
+  if(g) return 'https://media.giphy.com/media/' + g[1] + '/giphy.gif';
+  if(/^https:\/\/[^\s\/]+\/[^\s?#]*\.(gif|png|jpe?g|webp)(?:[?#]\S*)?$/i.test(u)) return u;
+  if(/^https:\/\/(media\d*\.giphy\.com|i\.giphy\.com|media\.tenor\.com|c\.tenor\.com)\//i.test(u)) return u;
+  return null;
+}
+function fillText(el, s){
+  el.textContent = '';
+  const re = /https:\/\/[^\s<>"']+/gi;
+  let last = 0, mm;
+  while((mm = re.exec(s))){
+    const url = mm[0], src = imageSrc(url);
+    if(!src) continue;
+    if(mm.index > last) el.appendChild(document.createTextNode(s.slice(last, mm.index)));
+    const img = document.createElement('img');
+    img.className = 'msg-img';
+    img.alt = 'image';
+    img.loading = 'lazy';
+    img.referrerPolicy = 'no-referrer';
+    img.addEventListener('error', ()=>{ img.replaceWith(document.createTextNode(url)); });
+    img.addEventListener('load', ()=>{ if(stickBottom) messagesEl.scrollTop = messagesEl.scrollHeight; });
+    img.src = src;
+    el.appendChild(img);
+    last = mm.index + url.length;
+  }
+  if(last < s.length) el.appendChild(document.createTextNode(s.slice(last)));
+}
+
 function renderMessages(){
   if(!activeChannelId){ messagesEl.innerHTML = '<div class="empty-hint">Loading…</div>'; return; }
   if(messages.length===0){
@@ -814,6 +856,7 @@ function renderMessages(){
     return;
   }
   const wasAtBottom = messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 40;
+  stickBottom = wasAtBottom;
   messagesEl.innerHTML = '';
   messages.forEach(m=>{
     const mine = m.user === me.name;
@@ -870,7 +913,7 @@ function renderMessages(){
 
     const text = document.createElement('div');
     text.className = 'msg-text';
-    text.textContent = m.text;
+    fillText(text, m.text);
     if(m.pending) text.style.opacity = '0.55';
     body.appendChild(text);
 
