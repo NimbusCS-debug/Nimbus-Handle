@@ -131,6 +131,10 @@ body{
 .msg-head{display:flex; align-items:baseline; gap:8px;}
 .msg-head .who{font-weight:600; font-size:14px;}
 .msg-head .time{font-size:11px; color:var(--text-faint);}
+.input-row #plusBtn{background:var(--surface-2); color:var(--text-secondary); font-size:21px; line-height:1; font-family:inherit; font-weight:500;}
+.input-row #plusBtn:hover{background:var(--accent-indigo); color:#0B0C10;}
+.input-row #plusBtn:disabled{opacity:.5; cursor:default;}
+.msg-img.loading{width:140px; height:90px;}
 .msg-img{display:block; max-width:min(320px,100%); max-height:260px; border-radius:8px; margin:4px 0; background:var(--surface);}
 .msg-text{font-size:14px; line-height:1.5; color:var(--text-primary); word-wrap:break-word; white-space:pre-wrap;}
 .edited-tag{font-size:10.5px; color:var(--text-faint); font-style:italic; margin-left:4px;}
@@ -251,6 +255,8 @@ body{
     <div class="messages" id="messagesList"></div>
     <div class="input-area">
       <div class="input-row">
+        <button id="plusBtn" type="button" title="Add an image or GIF">+</button>
+        <input type="file" id="plusFile" accept="image/*" style="display:none;">
         <input id="messageInput" placeholder="Message #general" autocomplete="off">
         <button id="sendBtn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg></button>
       </div>
@@ -276,7 +282,7 @@ body{
 <div class="modal-overlay" id="avOverlay" style="display:none;">
   <div class="modal-box">
     <h3>Profile picture</h3>
-    <p class="modal-sub">Choose an image from your device (PNG, JPG, WebP, or a small animated GIF). It is cropped to a square and shown next to your messages.</p>
+    <p class="modal-sub">Choose an image or an animated GIF from your device. It is cropped to a square and shrunk to fit, and GIFs keep moving.</p>
     <div class="av-preview" id="avPreview"></div>
     <p class="modal-error" id="avError"></p>
     <input type="file" id="avFile" accept="image/*" style="display:none;">
@@ -616,35 +622,219 @@ userAvatar.addEventListener('click', ()=>{
 });
 document.getElementById('avClose').addEventListener('click', ()=>{ avOverlay.style.display = 'none'; });
 document.getElementById('avChoose').addEventListener('click', ()=>avFile.click());
-const AV_MAX = 46000;   // characters; the sheet cell limit is 50,000
-function resizeImage(file){
+// ---------- image preparation: shrink pictures and animated GIFs so they fit in a sheet cell ----------
+const AV_MAX = 46000;   // characters of data URL; the sheet cell limit is 50,000
+function readAsDataURL(file){
   return new Promise((res, rej)=>{
     const r = new FileReader();
     r.onerror = ()=>rej(new Error('Could not read that file.'));
-    r.onload = ()=>{
-      if(file.type === 'image/gif'){
-        // animated GIFs are kept exactly as they are, so they have to be small
-        if(r.result.length > AV_MAX){ rej(new Error('That GIF is too big (max about 33 KB). Pick a smaller one, or use a still image.')); return; }
-        res(r.result);
-        return;
-      }
-      const img = new Image();
-      img.onerror = ()=>rej(new Error('That file is not a usable image.'));
-      img.onload = ()=>{
-        const S = 96, cv = document.createElement('canvas');
-        cv.width = cv.height = S;
-        const m = Math.min(img.width, img.height);
-        cv.getContext('2d').drawImage(img, (img.width-m)/2, (img.height-m)/2, m, m, 0, 0, S, S);
-        // PNG/WebP keep transparency; fall back to smaller formats if the result is too large
-        const tries = [ cv.toDataURL('image/png'), cv.toDataURL('image/webp', 0.85), cv.toDataURL('image/jpeg', 0.82), cv.toDataURL('image/jpeg', 0.6) ];
-        const ok = tries.find(t=>t.length <= AV_MAX && /^data:image\/(png|webp|jpeg);/.test(t));
-        if(ok) res(ok); else rej(new Error('That image is too detailed. Try a simpler one.'));
-      };
-      img.src = r.result;
-    };
+    r.onload = ()=>res(r.result);
     r.readAsDataURL(file);
   });
 }
+function bytesToDataURL(bytes, mime){
+  let s = '';
+  for(let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  return 'data:' + mime + ';base64,' + btoa(s);
+}
+function medianCut(samples, n){
+  const boxes = [samples];
+  while(boxes.length < n){
+    let bi = -1, best = 0, bch = 0;
+    for(let i = 0; i < boxes.length; i++){
+      const px = boxes[i];
+      if(px.length < 2) continue;
+      const mn = [255,255,255], mx = [0,0,0];
+      for(const p of px) for(let c = 0; c < 3; c++){ if(p[c] < mn[c]) mn[c] = p[c]; if(p[c] > mx[c]) mx[c] = p[c]; }
+      for(let c = 0; c < 3; c++){ const sc = (mx[c] - mn[c]) * px.length; if(sc > best){ best = sc; bi = i; bch = c; } }
+    }
+    if(bi < 0) break;
+    const px = boxes[bi].slice().sort((a, b)=>a[bch] - b[bch]);
+    const mid = px.length >> 1;
+    boxes.splice(bi, 1, px.slice(0, mid), px.slice(mid));
+  }
+  return boxes.map(px=>{
+    let r = 0, g = 0, b = 0;
+    px.forEach(p=>{ r += p[0]; g += p[1]; b += p[2]; });
+    const k = px.length || 1;
+    return [Math.round(r / k), Math.round(g / k), Math.round(b / k)];
+  });
+}
+function lzwEncode(idx, minCode){
+  const clear = 1 << minCode, eoi = clear + 1;
+  let size = minCode + 1, next = eoi + 1, table = new Map();
+  const out = [];
+  let cur = 0, shift = 0;
+  function emit(code){
+    cur |= code << shift; shift += size;
+    while(shift >= 8){ out.push(cur & 255); cur >>>= 8; shift -= 8; }
+  }
+  emit(clear);
+  let prefix = idx[0];
+  for(let i = 1; i < idx.length; i++){
+    const k = idx[i], key = (prefix << 8) | k, hit = table.get(key);
+    if(hit !== undefined){ prefix = hit; continue; }
+    emit(prefix);
+    if(next === 4096){
+      emit(clear);
+      next = eoi + 1; size = minCode + 1; table = new Map();
+    } else {
+      if(next >= (1 << size)) size++;
+      table.set(key, next++);
+    }
+    prefix = k;
+  }
+  emit(prefix);
+  if(next >= (1 << size) && size < 12) size++;
+  emit(eoi);
+  if(shift > 0) out.push(cur & 255);
+  return out;
+}
+function gifBytes(w, h, palette, frames, trans){
+  const o = [];
+  const w16 = v=>{ o.push(v & 255, (v >> 8) & 255); };
+  'GIF89a'.split('').forEach(ch=>o.push(ch.charCodeAt(0)));
+  w16(w); w16(h); o.push(0xF7, 0, 0);
+  for(let i = 0; i < 256; i++){ const c = palette[i] || [0,0,0]; o.push(c[0], c[1], c[2]); }
+  o.push(0x21, 0xFF, 0x0B);
+  'NETSCAPE2.0'.split('').forEach(ch=>o.push(ch.charCodeAt(0)));
+  o.push(3, 1, 0, 0, 0);
+  frames.forEach(f=>{
+    o.push(0x21, 0xF9, 4, trans >= 0 ? 9 : 4, f.delay & 255, (f.delay >> 8) & 255, trans >= 0 ? trans : 0, 0);
+    o.push(0x2C); w16(0); w16(0); w16(w); w16(h); o.push(0);
+    o.push(8);
+    const data = lzwEncode(f.idx, 8);
+    for(let p = 0; p < data.length; p += 255){
+      const n = Math.min(255, data.length - p);
+      o.push(n);
+      for(let q = 0; q < n; q++) o.push(data[p + q]);
+    }
+    o.push(0);
+  });
+  o.push(0x3B);
+  return Uint8Array.from(o);
+}
+// frames: [{ rgba: Uint8ClampedArray, delay: centiseconds }]
+function encodeGif(w, h, frames){
+  let hasAlpha = false;
+  const samples = [], stride = Math.max(1, Math.floor(w * h * frames.length / 20000));
+  let n = 0;
+  frames.forEach(f=>{
+    for(let i = 0; i < f.rgba.length; i += 4){
+      if(f.rgba[i + 3] < 128){ hasAlpha = true; continue; }
+      if((n++ % stride) === 0) samples.push([f.rgba[i], f.rgba[i + 1], f.rgba[i + 2]]);
+    }
+  });
+  const palette = medianCut(samples.length ? samples : [[0,0,0]], hasAlpha ? 255 : 256);
+  const trans = hasAlpha ? 255 : -1;
+  const cache = new Map();
+  function nearest(r, g, b){
+    const key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+    let v = cache.get(key);
+    if(v === undefined){
+      let best = 1e9; v = 0;
+      for(let i = 0; i < palette.length; i++){
+        const p = palette[i], d = (p[0] - r) * (p[0] - r) + (p[1] - g) * (p[1] - g) + (p[2] - b) * (p[2] - b);
+        if(d < best){ best = d; v = i; }
+      }
+      cache.set(key, v);
+    }
+    return v;
+  }
+  const out = frames.map(f=>{
+    const idx = new Uint8Array(w * h);
+    for(let i = 0, p = 0; i < f.rgba.length; i += 4, p++){
+      idx[p] = f.rgba[i + 3] < 128 ? trans : nearest(f.rgba[i], f.rgba[i + 1], f.rgba[i + 2]);
+    }
+    return { idx: idx, delay: f.delay };
+  });
+  return gifBytes(w, h, palette, out, trans);
+}
+function fitSize(sw, sh, size, square){
+  if(square) return [size, size];
+  const k = Math.min(1, size / Math.max(sw, sh));
+  return [Math.max(1, Math.round(sw * k)), Math.max(1, Math.round(sh * k))];
+}
+function drawFitted(ctx, src, sw, sh, w, h, square){
+  ctx.clearRect(0, 0, w, h);
+  if(square){
+    const m = Math.min(sw, sh);
+    ctx.drawImage(src, (sw - m) / 2, (sh - m) / 2, m, m, 0, 0, w, h);
+  } else {
+    ctx.drawImage(src, 0, 0, sw, sh, 0, 0, w, h);
+  }
+}
+async function shrinkStill(file, sizes, square){
+  const bmp = await createImageBitmap(file);
+  for(const size of sizes){
+    const [w, h] = fitSize(bmp.width, bmp.height, size, square);
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    drawFitted(cv.getContext('2d'), bmp, bmp.width, bmp.height, w, h, square);
+    const tries = [cv.toDataURL('image/png'), cv.toDataURL('image/webp', 0.85), cv.toDataURL('image/jpeg', 0.82), cv.toDataURL('image/jpeg', 0.6)];
+    const ok = tries.find(t=>t.length <= AV_MAX && /^data:image\/(png|webp|jpeg);/.test(t));
+    if(ok){ bmp.close && bmp.close(); return ok; }
+  }
+  throw new Error('That image is too detailed to shrink enough. Try a simpler one.');
+}
+async function shrinkGif(file, sizes, square){
+  const dec = new ImageDecoder({ data: await file.arrayBuffer(), type: 'image/gif' });
+  await dec.tracks.ready;
+  const count = dec.tracks.selectedTrack.frameCount;
+  if(count <= 1) return shrinkStill(file, sizes, square);
+  const every = Math.max(1, Math.ceil(count / 60));            // look at no more than ~60 frames
+  const src = [];
+  for(let i = 0; i < count; i += every){
+    const r = await dec.decode({ frameIndex: i });
+    const dur = Math.max(20, Math.round((r.image.duration || 100000) / 1000)) * every;
+    src.push({ bmp: await createImageBitmap(r.image), ms: dur });
+    r.image.close();
+  }
+  try{
+    const prepared = {};
+    function framesAt(size){
+      if(prepared[size]) return prepared[size];
+      const [w, h] = fitSize(src[0].bmp.width, src[0].bmp.height, size, square);
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      const all = src.map(s=>{
+        drawFitted(ctx, s.bmp, s.bmp.width, s.bmp.height, w, h, square);
+        return { rgba: ctx.getImageData(0, 0, w, h).data, ms: s.ms };
+      });
+      return (prepared[size] = { w: w, h: h, all: all });
+    }
+    // first try to keep it smooth at smaller sizes, and only then drop more frames
+    for(const steps of [[1, 2, 3], [4, 6, 8]]){
+      for(const size of sizes){
+        const P = framesAt(size);
+        for(const step of steps){
+          const frames = [];
+          for(let i = 0; i < P.all.length; i += step){
+            let ms = 0;
+            for(let j = i; j < Math.min(P.all.length, i + step); j++) ms += P.all[j].ms;
+            frames.push({ rgba: P.all[i].rgba, delay: Math.max(2, Math.round(ms / 10)) });
+          }
+          const url = bytesToDataURL(encodeGif(P.w, P.h, frames), 'image/gif');
+          if(url.length <= AV_MAX) return url;
+          if(frames.length <= 2) break;
+        }
+      }
+    }
+  } finally { src.forEach(s=>s.bmp.close && s.bmp.close()); }
+  throw new Error('That GIF is too long or detailed to shrink enough. Try a shorter one.');
+}
+// Returns a data URL that fits in a sheet cell. opts: { sizes: [largest..smallest], square: bool }
+async function prepareImage(file, opts){
+  if(file.type === 'image/gif'){
+    const raw = await readAsDataURL(file);
+    if(raw.length <= AV_MAX) return raw;                         // small GIFs are kept exactly as they are
+    if(!('ImageDecoder' in window)) throw new Error("This browser can't shrink GIFs. Use a GIF under about 33 KB, or try Chrome or Edge.");
+    return shrinkGif(file, opts.sizes, opts.square);
+  }
+  return shrinkStill(file, opts.sizes, opts.square);
+}
+
 async function saveAvatar(data){
   await rpc('chatSetAvatar', me.name, data, adminPw, tokenOf());
   localAv = data || null;
@@ -660,7 +850,8 @@ avFile.addEventListener('change', async ()=>{
   avFile.value = '';
   if(!f) return;
   avErr('');
-  try{ await saveAvatar(await resizeImage(f)); }catch(err){ avErr(err.message); }
+  avErr('Preparing picture...');
+  try{ await saveAvatar(await prepareImage(f, { square: true, sizes: [96, 72, 56] })); avErr(''); }catch(err){ avErr(err.message); }
 });
 document.getElementById('avRemove').addEventListener('click', async ()=>{
   avErr('');
@@ -675,6 +866,36 @@ function syncAvatar(){
     .catch(()=>{})
     .then(()=>{ syncing = false; });
 }
+
+// ---------- + button: send a picture or GIF ----------
+const plusBtn = document.getElementById('plusBtn');
+const plusFile = document.getElementById('plusFile');
+plusBtn.addEventListener('click', ()=>{ if(activeChannelId && me.name) plusFile.click(); });
+plusFile.addEventListener('change', async ()=>{
+  const f = plusFile.files[0];
+  plusFile.value = '';
+  if(!f || !activeChannelId) return;
+  const chId = activeChannelId, oldHint = messageInput.placeholder;
+  plusBtn.disabled = true;
+  messageInput.placeholder = 'Preparing picture...';
+  try{
+    const data = await prepareImage(f, { square: false, sizes: [360, 280, 220, 170, 130, 100] });
+    messageInput.placeholder = 'Uploading...';
+    const id = await rpc('chatUploadImage', me.name, data, adminPw, tokenOf());
+    imageCache[id] = data;
+    const typed = messageInput.value.trim();
+    messageInput.value = '';
+    await rpc('chatSend', chId, me.name, me.color, (typed ? typed + '\n' : '') + '[img:' + id + ']', adminPw, tokenOf());
+    msgVer = '';
+    poll();
+  }catch(err){
+    if(/log in again/i.test(err.message)){ logout('Your login expired. Please log in again.'); }
+    else notice("Couldn't send the picture", err.message);
+  }finally{
+    plusBtn.disabled = false;
+    messageInput.placeholder = oldHint;
+  }
+});
 
 // ---------- polling ----------
 let polling = false, timer = null;
@@ -827,26 +1048,67 @@ function imageSrc(u){
   if(/^https:\/\/(media\d*\.giphy\.com|i\.giphy\.com|media\.tenor\.com|c\.tenor\.com)\//i.test(u)) return u;
   return null;
 }
+// pictures sent with the + button are stored in the sheet and fetched by id
+const imageCache = {};
+let imgQueue = new Set(), imgTimer = null;
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
+function wantImage(id){
+  if(imageCache[id] || imgQueue.has(id)) return;
+  imgQueue.add(id);
+  clearTimeout(imgTimer);
+  imgTimer = setTimeout(flushImages, 40);
+}
+async function flushImages(){
+  const ids = [...imgQueue].slice(0, 40);
+  ids.forEach(i=>imgQueue.delete(i));
+  try{
+    const r = await rpc('chatGetImages', ids);
+    ids.forEach(k=>{ imageCache[k] = (r && r[k]) ? r[k] : 'missing'; });
+    applyImages();
+  }catch(e){ /* tries again the next time messages are drawn */ }
+  if(imgQueue.size) imgTimer = setTimeout(flushImages, 40);
+}
+function applyImages(){
+  document.querySelectorAll('img[data-iid]').forEach(img=>{
+    const d = imageCache[img.dataset.iid];
+    if(!d) return;
+    if(d === 'missing'){ img.replaceWith(document.createTextNode('[image unavailable]')); return; }
+    if(img.dataset.set !== '1'){ img.dataset.set = '1'; img.classList.remove('loading'); img.src = d; }
+  });
+}
 function fillText(el, s){
   el.textContent = '';
-  const re = /https:\/\/[^\s<>"']+/gi;
+  const re = /\[img:(i[0-9a-f]{6,20})\]|https:\/\/[^\s<>"']+/gi;
   let last = 0, mm;
   while((mm = re.exec(s))){
-    const url = mm[0], src = imageSrc(url);
+    const token = mm[1], url = mm[0];
+    const src = token ? BLANK : imageSrc(url);
     if(!src) continue;
     if(mm.index > last) el.appendChild(document.createTextNode(s.slice(last, mm.index)));
     const img = document.createElement('img');
     img.className = 'msg-img';
     img.alt = 'image';
-    img.loading = 'lazy';
-    img.referrerPolicy = 'no-referrer';
-    img.addEventListener('error', ()=>{ img.replaceWith(document.createTextNode(url)); });
+    if(token){
+      img.dataset.iid = token;
+      img.classList.add('loading');
+      img.src = BLANK;
+      if(imageCache[token]) applyImages_one(img, token); else wantImage(token);
+    } else {
+      img.loading = 'lazy';
+      img.referrerPolicy = 'no-referrer';
+      img.addEventListener('error', ()=>{ img.replaceWith(document.createTextNode(url)); });
+      img.src = src;
+    }
     img.addEventListener('load', ()=>{ if(stickBottom) messagesEl.scrollTop = messagesEl.scrollHeight; });
-    img.src = src;
     el.appendChild(img);
     last = mm.index + url.length;
   }
   if(last < s.length) el.appendChild(document.createTextNode(s.slice(last)));
+}
+function applyImages_one(img, id){
+  const d = imageCache[id];
+  if(d === 'missing'){ img.replaceWith(document.createTextNode('[image unavailable]')); return; }
+  img.dataset.set = '1'; img.classList.remove('loading'); img.src = d;
 }
 
 function renderMessages(){
