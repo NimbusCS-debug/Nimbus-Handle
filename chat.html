@@ -308,6 +308,11 @@ function randomIdentity(){
 function escapeAttr(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 const ADMIN_NAME = "Nimbus - CS";   // the password is checked on the server
+// "CS" and "Nimbus - CS" (any capitalization, spacing or dashes) are reserved and need the password
+function isReserved(n){
+  const k = String(n||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  return k === 'cs' || k === 'nimbuscs';
+}
 
 // ---------- saved display name ----------
 const NAME_KEY = 'nimbus-chat-identity';
@@ -317,7 +322,7 @@ function loadIdentity(){
     const s = JSON.parse(localStorage.getItem(NAME_KEY) || 'null');
     if(s && typeof s.name === 'string'){
       const name = s.name.trim().slice(0,20);
-      if(name && name !== ADMIN_NAME){          // admin name always needs the password
+      if(name && !isReserved(name)){          // admin name always needs the password
         fresh.name = name;
         if(/^#[0-9A-Fa-f]{6}$/.test(s.color)) fresh.color = s.color;
       }
@@ -458,10 +463,10 @@ editNameBtn.addEventListener('click', async ()=>{
   const trimmed = nameResult.name.slice(0,20);
   if(!trimmed) return;
 
-  if(trimmed === ADMIN_NAME){
+  if(isReserved(trimmed)){
     const passResult = await showModal({
       title: 'Admin verification',
-      subtitle: `"${ADMIN_NAME}" is a reserved name. Enter the admin password to use it.`,
+      subtitle: `"${trimmed}" is a reserved name. Enter the password to use it.`,
       fields: [{ id:'password', type:'password', placeholder:'Password', maxLength:100 }],
       confirmLabel: 'Verify',
       validate: async (v)=>{
@@ -736,7 +741,7 @@ async function sendMessage(){
   if(editingMessageId === null) renderMessages();
   messagesEl.scrollTop = messagesEl.scrollHeight;
   try{
-    await rpc('chatSend', chId, me.name, me.color, text);
+    await rpc('chatSend', chId, me.name, me.color, text, adminPw);
   }catch(err){
     messages = messages.filter(m=>m.id!==tempId);
     renderMessages();
