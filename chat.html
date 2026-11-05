@@ -164,6 +164,868 @@ body{
 }
 .input-row button svg{width:15px;height:15px;}
 
+#userAvatar{cursor:pointer;}
+#userAvatar:hover{filter:brightness(1.15);}
+.av-preview{
+  width:84px; height:84px; border-radius:50%; margin:0 auto 14px; display:flex; align-items:center; justify-content:center;
+  font-size:26px; font-weight:700; color:#0B0C10;
+}
+
+/* Modal (replaces native prompt/alert so it works when embedded) */
+.modal-overlay{
+  position:fixed; inset:0; background:rgba(8,8,10,0.65); backdrop-filter:blur(2px);
+  display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px;
+}
+.modal-box{
+  width:320px; max-width:100%; background:var(--surface); border:1px solid var(--border);
+  border-radius:14px; padding:22px; box-shadow:0 24px 70px rgba(0,0,0,0.55);
+}
+.modal-box h3{margin:0 0 6px; font-size:15px; font-weight:700;}
+.modal-sub{font-size:12px; color:var(--text-secondary); line-height:1.5; margin:0 0 14px;}
+.modal-sub:empty{display:none;}
+.modal-field{margin-bottom:10px;}
+.modal-field input{
+  width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:8px;
+  padding:9px 11px; color:var(--text-primary); font-family:inherit; font-size:13.5px; outline:none;
+}
+.modal-field input:focus{border-color:var(--accent-indigo);}
+.modal-error{color:var(--accent-red); font-size:12px; margin:2px 0 0; display:none;}
+.modal-error:not(:empty){display:block;}
+.modal-actions{display:flex; gap:8px; margin-top:16px;}
+.modal-actions button{
+  flex:1; padding:9px; border-radius:8px; border:1px solid var(--border); font-family:inherit;
+  font-size:13px; font-weight:600; cursor:pointer;
+}
+.btn-cancel{background:var(--surface-2); color:var(--text-primary);}
+.btn-cancel:hover{filter:brightness(1.15);}
+.btn-confirm{background:var(--accent-indigo); color:#0B0C10; border-color:var(--accent-indigo);}
+.btn-confirm:hover{filter:brightness(1.08);}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="server-header">
+      <svg class="cloud" viewBox="0 0 24 24" fill="url(#cg)">
+        <defs><linearGradient id="cg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6E6FF2"/><stop offset="1" stop-color="#F2A93B"/></linearGradient></defs>
+        <path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/>
+      </svg>
+      Nimbus Chat
+    </div>
+    <div class="channel-section-lbl">Text Channels</div>
+    <div class="channel-list" id="channelList"></div>
+    <div class="add-channel-row">
+      <input id="newChannelInput" placeholder="new-channel" maxlength="24">
+      <label class="public-toggle" id="publicToggleWrap" style="display:none;">
+        <input type="checkbox" id="publicToggle"> Public
+      </label>
+      <button id="addChannelBtn">+</button>
+    </div>
+    <div class="join-row">
+      <input id="joinCodeInput" placeholder="Join code" maxlength="10">
+      <button id="joinCodeBtn">Join</button>
+    </div>
+    <div class="user-panel">
+      <div class="avatar" id="userAvatar"></div>
+      <div style="flex:1; min-width:0;">
+        <div class="u-name" id="userNameDisplay"></div>
+        <div class="u-sub">Online</div>
+      </div>
+      <button id="editNameBtn" title="Change name">✎</button>
+    </div>
+  </aside>
+
+  <main class="chat-main">
+    <div class="channel-header">
+      <span class="hash">#</span><span id="channelTitle">general</span>
+      <span class="sub">Shared live — everyone here sees the same messages</span>
+    </div>
+    <div class="messages" id="messagesList"></div>
+    <div class="input-area">
+      <div class="input-row">
+        <input id="messageInput" placeholder="Message #general" autocomplete="off">
+        <button id="sendBtn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg></button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="modal-overlay" id="avOverlay" style="display:none;">
+  <div class="modal-box">
+    <h3>Profile picture</h3>
+    <p class="modal-sub">Choose an image from your device. It is cropped to a square and shown next to your messages.</p>
+    <div class="av-preview" id="avPreview"></div>
+    <p class="modal-error" id="avError"></p>
+    <input type="file" id="avFile" accept="image/*" style="display:none;">
+    <div class="modal-actions">
+      <button class="btn-cancel" id="avRemove">Remove</button>
+      <button class="btn-confirm" id="avChoose">Choose image</button>
+    </div>
+    <div class="modal-actions" style="margin-top:8px;">
+      <button class="btn-cancel" id="avClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay" style="display:none;">
+  <div class="modal-box">
+    <h3 id="modalTitle"></h3>
+    <p class="modal-sub" id="modalSubtitle"></p>
+    <div id="modalFields"></div>
+    <p class="modal-error" id="modalError"></p>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="modalCancel">Cancel</button>
+      <button class="btn-confirm" id="modalConfirm">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+// ---------- bridge: the parent page calls Apps Script for us ----------
+var pending = {}, rid = 0;
+function rpc(fn){
+  var args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function(res, rej){
+    var id = ++rid;
+    var t = setTimeout(function(){ delete pending[id]; rej(new Error('Request timed out.')); }, 30000);
+    pending[id] = { res: res, rej: rej, t: t };
+    parent.postMessage({ type:'rpc', id:id, fn:fn, args:args }, '*');
+  });
+}
+var visible = true;
+window.addEventListener('message', function(e){
+  var d = e.data || {};
+  if(d.type === 'rpc-result'){
+    var p = pending[d.id]; if(!p) return;
+    clearTimeout(p.t); delete pending[d.id];
+    if(d.ok) p.res(d.value); else p.rej(new Error(d.error || 'Request failed.'));
+  } else if(d.type === 'chat-visible'){
+    visible = !!d.visible;
+    if(visible) poll();
+  } else if(d.type === 'chat-theme'){
+    applyChatTheme(d.vars);
+  }
+});
+
+var THEME_VARS = ['--bg-page','--sidebar-bg','--sidebar-bg-2','--main-bg','--surface','--surface-2','--accent-indigo'];
+function applyChatTheme(vars){
+  var st = document.documentElement.style;
+  THEME_VARS.forEach(function(k){
+    if(vars && typeof vars[k] === 'string') st.setProperty(k, vars[k]);
+    else st.removeProperty(k);
+  });
+}
+// ask the main page for the current theme
+try{ parent.postMessage({ type:'chat-ready' }, '*'); }catch(e){}
+
+const COLORS = ['#6E6FF2','#F2A93B','#4CD787','#EF5B5B','#3BB0F2','#F2799E','#8CE07A','#C792EA'];
+const ANIMALS = ['Otter','Falcon','Lynx','Heron','Puffin','Marten','Wren','Ibex','Gecko','Orca'];
+function randomIdentity(){
+  return {
+    name: ANIMALS[Math.floor(Math.random()*ANIMALS.length)] + Math.floor(Math.random()*900+100),
+    color: COLORS[Math.floor(Math.random()*COLORS.length)],
+    isAdmin: false
+  };
+}
+function escapeAttr(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const ADMIN_NAME = "Nimbus - CS";   // the password is checked on the server
+// "CS" and "Nimbus - CS" (any capitalization, spacing or dashes) are reserved and need the password
+function isReserved(n){
+  const k = String(n||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  return k === 'cs' || k === 'nimbuscs';
+}
+
+// ---------- saved display name ----------
+const NAME_KEY = 'nimbus-chat-identity';
+function loadIdentity(){
+  const fresh = randomIdentity();
+  try{
+    const s = JSON.parse(localStorage.getItem(NAME_KEY) || 'null');
+    if(s && typeof s.name === 'string'){
+      const name = s.name.trim().slice(0,20);
+      if(name && !isReserved(name)){          // admin name always needs the password
+        fresh.name = name;
+        if(/^#[0-9A-Fa-f]{6}$/.test(s.color)) fresh.color = s.color;
+      }
+    }
+  }catch(e){}
+  return fresh;
+}
+function saveIdentity(){
+  try{ localStorage.setItem(NAME_KEY, JSON.stringify({ name: me.name, color: me.color })); }catch(e){}
+}
+let me = loadIdentity();
+saveIdentity();   // keeps the random name too, so it doesn't change next visit
+
+let adminPw = '';
+let channels = [];
+let activeChannelId = null;
+let messages = [];
+let msgVer = '', chanVer = '';
+let editingMessageId = null;
+let tempCounter = 0;
+let avatarMap = {}, avVer = '';
+
+const channelListEl = document.getElementById('channelList');
+const channelTitleEl = document.getElementById('channelTitle');
+const messagesEl = document.getElementById('messagesList');
+const messageInput = document.getElementById('messageInput');
+const sendBtn = document.getElementById('sendBtn');
+const newChannelInput = document.getElementById('newChannelInput');
+const addChannelBtn = document.getElementById('addChannelBtn');
+const publicToggleWrap = document.getElementById('publicToggleWrap');
+const publicToggle = document.getElementById('publicToggle');
+const joinCodeInput = document.getElementById('joinCodeInput');
+const joinCodeBtn = document.getElementById('joinCodeBtn');
+const userAvatar = document.getElementById('userAvatar');
+const userNameDisplay = document.getElementById('userNameDisplay');
+const editNameBtn = document.getElementById('editNameBtn');
+
+function loadJoined(){
+  try{ return new Set(JSON.parse(localStorage.getItem('nimbus-joined-channels') || '[]')); }
+  catch(err){ return new Set(); }
+}
+function saveJoined(){
+  try{ localStorage.setItem('nimbus-joined-channels', JSON.stringify([...joinedPrivateIds])); }
+  catch(err){}
+}
+let joinedPrivateIds = loadJoined();
+
+function renderUserPanel(){
+  userAvatar.title = 'Change profile picture';
+  paintAvatar(userAvatar, me.name, me.color);
+  userNameDisplay.innerHTML = escapeAttr(me.name) + (me.isAdmin ? ' <span style="color:var(--accent-amber); font-size:10.5px; font-weight:700;">ADMIN</span>' : '');
+}
+
+// ---------- modal (also used instead of alert/confirm) ----------
+function showModal({ title, subtitle, fields, confirmLabel='OK', cancelLabel='Cancel', hideCancel=false, validate }){
+  return new Promise(resolve=>{
+    const overlay = document.getElementById('modalOverlay');
+    const titleEl = document.getElementById('modalTitle');
+    const subEl = document.getElementById('modalSubtitle');
+    const fieldsWrap = document.getElementById('modalFields');
+    const errorEl = document.getElementById('modalError');
+    const confirmBtn = document.getElementById('modalConfirm');
+    const cancelBtn = document.getElementById('modalCancel');
+
+    titleEl.textContent = title || '';
+    subEl.textContent = subtitle || '';
+    subEl.style.whiteSpace = 'pre-wrap';
+    errorEl.textContent = '';
+    confirmBtn.textContent = confirmLabel;
+    cancelBtn.textContent = cancelLabel;
+    cancelBtn.style.display = hideCancel ? 'none' : '';
+    fieldsWrap.innerHTML = '';
+
+    const inputs = {};
+    (fields||[]).forEach(f=>{
+      const wrap = document.createElement('div');
+      wrap.className = 'modal-field';
+      const input = document.createElement('input');
+      input.type = f.type || 'text';
+      input.placeholder = f.placeholder || '';
+      input.value = f.value || '';
+      input.maxLength = f.maxLength || 60;
+      wrap.appendChild(input);
+      fieldsWrap.appendChild(wrap);
+      inputs[f.id] = input;
+    });
+
+    overlay.style.display = 'flex';
+    const firstInput = Object.values(inputs)[0];
+    if(firstInput) setTimeout(()=>firstInput.focus(), 20);
+
+    function cleanup(){
+      overlay.style.display = 'none';
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('keydown', onKey);
+    }
+    async function onConfirm(){
+      const values = {};
+      Object.keys(inputs).forEach(k=>{ values[k] = inputs[k].value.trim(); });
+      if(validate){
+        confirmBtn.disabled = true;
+        let result;
+        try{ result = await validate(values); }catch(err){ result = err.message; }
+        confirmBtn.disabled = false;
+        if(result !== true){
+          errorEl.textContent = typeof result==='string' ? result : 'Invalid input.';
+          return;
+        }
+      }
+      cleanup();
+      resolve(values);
+    }
+    function onCancel(){ cleanup(); resolve(null); }
+    function onKey(e){
+      if(e.key==='Enter') onConfirm();
+      if(e.key==='Escape') onCancel();
+    }
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('keydown', onKey);
+    if(!firstInput) setTimeout(()=>confirmBtn.focus(), 20);
+  });
+}
+function notice(title, text){ return showModal({ title, subtitle:text, fields:[], hideCancel:true }); }
+async function confirmDialog(title, text){
+  const r = await showModal({ title, subtitle:text, fields:[], confirmLabel:'Yes', cancelLabel:'Cancel' });
+  return !!r;
+}
+
+editNameBtn.addEventListener('click', async ()=>{
+  const nameResult = await showModal({
+    title: 'Set display name',
+    subtitle: "This is what others in the chat will see.",
+    fields: [{ id:'name', placeholder:'Display name', value: me.name, maxLength:20 }],
+    confirmLabel: 'Continue'
+  });
+  if(!nameResult) return;
+  const trimmed = nameResult.name.slice(0,20);
+  if(!trimmed) return;
+
+  if(isReserved(trimmed)){
+    const passResult = await showModal({
+      title: 'Admin verification',
+      subtitle: `"${trimmed}" is a reserved name. Enter the password to use it.`,
+      fields: [{ id:'password', type:'password', placeholder:'Password', maxLength:100 }],
+      confirmLabel: 'Verify',
+      validate: async (v)=>{
+        const ok = await rpc('chatCheckAdmin', v.password);
+        if(ok){ adminPw = v.password; return true; }
+        return 'Incorrect password.';
+      }
+    });
+    if(!passResult) return;
+    me.isAdmin = true;
+  } else {
+    me.isAdmin = false;
+    adminPw = '';
+  }
+  me.name = trimmed;
+  if(!me.isAdmin) saveIdentity();
+  renderUserPanel();
+  publicToggleWrap.style.display = me.isAdmin ? 'flex' : 'none';
+  renderChannelList();
+  renderMessages();
+  syncAvatar();
+});
+publicToggleWrap.style.display = 'none';
+renderUserPanel();
+
+// ---------- profile picture ----------
+const AV_KEY = 'nimbus-chat-avatar';
+let avSynced = false;
+function paintAvatar(el, name, color){
+  const img = avatarMap[name];
+  if(img){
+    el.style.background = 'url("' + img + '") center/cover no-repeat';
+    el.textContent = '';
+  } else {
+    el.style.background = color || '#888';
+    el.textContent = String(name || '?').slice(0,2).toUpperCase();
+  }
+}
+const avOverlay = document.getElementById('avOverlay');
+const avPreview = document.getElementById('avPreview');
+const avError = document.getElementById('avError');
+const avFile = document.getElementById('avFile');
+function avErr(t){ avError.textContent = t || ''; }
+function refreshAvPreview(){ paintAvatar(avPreview, me.name, me.color); }
+userAvatar.addEventListener('click', ()=>{ avErr(''); refreshAvPreview(); avOverlay.style.display = 'flex'; });
+document.getElementById('avClose').addEventListener('click', ()=>{ avOverlay.style.display = 'none'; });
+document.getElementById('avChoose').addEventListener('click', ()=>avFile.click());
+function resizeImage(file){
+  return new Promise((res, rej)=>{
+    const r = new FileReader();
+    r.onerror = ()=>rej(new Error('Could not read that file.'));
+    r.onload = ()=>{
+      const img = new Image();
+      img.onerror = ()=>rej(new Error('That file is not a usable image.'));
+      img.onload = ()=>{
+        const S = 96, cv = document.createElement('canvas');
+        cv.width = cv.height = S;
+        const m = Math.min(img.width, img.height);
+        cv.getContext('2d').drawImage(img, (img.width-m)/2, (img.height-m)/2, m, m, 0, 0, S, S);
+        res(cv.toDataURL('image/jpeg', 0.82));
+      };
+      img.src = r.result;
+    };
+    r.readAsDataURL(file);
+  });
+}
+async function saveAvatar(data){
+  await rpc('chatSetAvatar', me.name, data, adminPw);
+  if(data) avatarMap[me.name] = data; else delete avatarMap[me.name];
+  try{ if(data) localStorage.setItem(AV_KEY, data); else localStorage.removeItem(AV_KEY); }catch(e){}
+  avVer = '';
+  renderUserPanel(); refreshAvPreview();
+  if(editingMessageId === null) renderMessages();
+  poll();
+}
+avFile.addEventListener('change', async ()=>{
+  const f = avFile.files[0];
+  avFile.value = '';
+  if(!f) return;
+  avErr('');
+  try{ await saveAvatar(await resizeImage(f)); }catch(err){ avErr(err.message); }
+});
+document.getElementById('avRemove').addEventListener('click', async ()=>{
+  avErr('');
+  try{ await saveAvatar(''); }catch(err){ avErr(err.message); }
+});
+// keeps your picture when you change your name (never overwrites a picture another name already has)
+function syncAvatar(){
+  let d = null;
+  try{ d = localStorage.getItem(AV_KEY); }catch(e){}
+  if(!d || avatarMap[me.name]) return;
+  rpc('chatSetAvatar', me.name, d, adminPw).then(()=>{ avVer = ''; poll(); }).catch(()=>{});
+}
+
+// ---------- polling ----------
+let polling = false, timer = null;
+async function poll(){
+  if(polling) return;
+  polling = true;
+  try{
+    const r = await rpc('chatPoll', activeChannelId, msgVer, [...joinedPrivateIds], chanVer, avVer);
+    applyPoll(r);
+  }catch(err){
+    console.error('Poll failed:', err);
+    if(!channels.length){
+      channelListEl.innerHTML = '<div class="empty-hint" style="padding:12px;">Couldn\'t reach the chat server.</div>';
+    }
+  }finally{
+    polling = false;
+  }
+}
+function schedule(){
+  clearTimeout(timer);
+  timer = setTimeout(async ()=>{
+    if(visible && !document.hidden) await poll();
+    schedule();
+  }, 3000);
+}
+function applyPoll(r){
+  if(r.avatars){
+    avatarMap = r.avatars;
+    avVer = r.avVer;
+    renderUserPanel();
+    if(editingMessageId === null) renderMessages();
+    if(!avSynced){ avSynced = true; syncAvatar(); }
+  }
+  if(r.channels){
+    channels = r.channels;
+    chanVer = r.chanVer;
+    renderChannelList();
+    const stillThere = channels.some(c=>c.id===activeChannelId);
+    if(!stillThere){
+      const general = channels.find(c=>c.name==='general');
+      const pick = general || channels[0];
+      if(pick) selectChannel(pick.id); else { activeChannelId = null; messages = []; renderMessages(); }
+      return;
+    }
+  }
+  if(r.messages && r.chId === activeChannelId){
+    messages = r.messages;
+    msgVer = r.msgVer;
+    if(editingMessageId === null) renderMessages();
+  }
+}
+
+// ---------- channels ----------
+function renderChannelList(){
+  channelListEl.innerHTML = '';
+  channels.forEach(c=>{
+    const el = document.createElement('div');
+    el.className = 'channel-item' + (c.id===activeChannelId ? ' active':'');
+    const icon = c.type==='private' ? '🔒' : '#';
+    el.innerHTML = `<span class="hash">${icon}</span><span class="ch-name">${escapeAttr(c.name)}</span>`;
+    el.addEventListener('click', ()=>selectChannel(c.id));
+    if(me.isAdmin){
+      const delBtn = document.createElement('span');
+      delBtn.className = 'channel-delete';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Delete channel';
+      delBtn.addEventListener('click', (e)=>{ e.stopPropagation(); deleteChannel(c); });
+      el.appendChild(delBtn);
+    }
+    channelListEl.appendChild(el);
+  });
+}
+
+async function deleteChannel(ch){
+  if(!(await confirmDialog('Delete #'+ch.name+'?', "This deletes the channel and all its messages. It can't be undone."))) return;
+  try{
+    await rpc('chatDeleteChannel', ch.id, adminPw);
+  }catch(err){
+    await notice('Could not delete', err.message);
+    return;
+  }
+  if(activeChannelId===ch.id){ activeChannelId = null; messages = []; msgVer = ''; }
+  chanVer = '';
+  poll();
+}
+
+addChannelBtn.addEventListener('click', createChannel);
+newChannelInput.addEventListener('keydown', e=>{ if(e.key==='Enter') createChannel(); });
+async function createChannel(){
+  const name = newChannelInput.value.trim();
+  if(!name) return;
+  const makePublic = me.isAdmin && publicToggle.checked;
+  try{
+    const res = await rpc('chatCreateChannel', name, makePublic, adminPw);
+    newChannelInput.value = '';
+    if(res.channel.type === 'private'){
+      joinedPrivateIds.add(res.channel.id);
+      saveJoined();
+    }
+    chanVer = '';
+    await poll();
+    selectChannel(res.channel.id);
+    if(res.code){
+      await notice('Private channel created', `#${res.channel.name} is private. Share this code so friends can join:\n\n${res.code}`);
+    }
+  }catch(err){
+    await notice('Could not create channel', err.message);
+  }
+}
+
+joinCodeBtn.addEventListener('click', joinChannel);
+joinCodeInput.addEventListener('keydown', e=>{ if(e.key==='Enter') joinChannel(); });
+async function joinChannel(){
+  const code = joinCodeInput.value.trim().toUpperCase();
+  if(!code) return;
+  try{
+    const found = await rpc('chatJoin', code);
+    if(!found){ await notice('Not found', 'No channel found with that code.'); return; }
+    joinedPrivateIds.add(found.id);
+    saveJoined();
+    joinCodeInput.value = '';
+    chanVer = '';
+    await poll();
+    selectChannel(found.id);
+  }catch(err){
+    await notice('Could not join', err.message);
+  }
+}
+
+function selectChannel(id){
+  activeChannelId = id;
+  editingMessageId = null;
+  messages = [];
+  msgVer = '';
+  const ch = channels.find(c=>c.id===id);
+  channelTitleEl.textContent = ch ? ch.name : '';
+  messageInput.placeholder = 'Message #' + (ch ? ch.name : '');
+  renderChannelList();
+  messagesEl.innerHTML = '<div class="empty-hint">Loading…</div>';
+  poll();
+}
+
+// ---------- messages ----------
+function renderMessages(){
+  if(!activeChannelId){ messagesEl.innerHTML = '<div class="empty-hint">Loading…</div>'; return; }
+  if(messages.length===0){
+    messagesEl.innerHTML = '<div class="empty-hint">No messages yet — say hello 👋</div>';
+    return;
+  }
+  const wasAtBottom = messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 40;
+  messagesEl.innerHTML = '';
+  messages.forEach(m=>{
+    const mine = m.user === me.name;
+    const row = document.createElement('div');
+    row.className = 'msg-row';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    paintAvatar(avatar, m.user, m.color);
+    row.appendChild(avatar);
+
+    const body = document.createElement('div');
+    body.className = 'msg-body';
+
+    if(editingMessageId === m.id){
+      const editRow = document.createElement('div');
+      editRow.className = 'edit-row';
+      const input = document.createElement('input');
+      input.value = m.text;
+      const save = document.createElement('button');
+      save.textContent = 'Save';
+      save.addEventListener('click', ()=>submitEdit(m.id, input.value));
+      input.addEventListener('keydown', e=>{
+        if(e.key==='Enter') submitEdit(m.id, input.value);
+        if(e.key==='Escape'){ editingMessageId=null; renderMessages(); }
+      });
+      const cancel = document.createElement('button');
+      cancel.className='cancel'; cancel.textContent='Cancel';
+      cancel.addEventListener('click', ()=>{ editingMessageId=null; renderMessages(); });
+      editRow.appendChild(input); editRow.appendChild(save); editRow.appendChild(cancel);
+      body.appendChild(editRow);
+      row.appendChild(body);
+      messagesEl.appendChild(row);
+      input.focus();
+      return;
+    }
+
+    const head = document.createElement('div');
+    head.className = 'msg-head';
+    const who = document.createElement('span');
+    who.className = 'who';
+    who.style.color = m.color || 'var(--text-primary)';
+    who.textContent = m.user;
+    const time = document.createElement('span');
+    time.className = 'time';
+    time.textContent = new Date(m.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    head.appendChild(who); head.appendChild(time);
+    if(m.edited){
+      const tag = document.createElement('span');
+      tag.className='edited-tag'; tag.textContent='(edited)';
+      head.appendChild(tag);
+    }
+    body.appendChild(head);
+
+    const text = document.createElement('div');
+    text.className = 'msg-text';
+    text.textContent = m.text;
+    if(m.pending) text.style.opacity = '0.55';
+    body.appendChild(text);
+
+    if((mine || me.isAdmin) && !m.pending){
+      const actions = document.createElement('div');
+      actions.className = 'msg-actions';
+      const editBtn = document.createElement('button');
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', ()=>{ editingMessageId = m.id; renderMessages(); });
+      const delBtn = document.createElement('button');
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', async ()=>{
+        if(!(await confirmDialog('Delete message?', 'This cannot be undone.'))) return;
+        try{
+          await rpc('chatDelete', m.id, me.name, adminPw);
+          msgVer = ''; poll();
+        }catch(err){ notice('Could not delete', err.message); }
+      });
+      actions.appendChild(editBtn); actions.appendChild(delBtn);
+      body.appendChild(actions);
+    }
+
+    row.appendChild(body);
+    messagesEl.appendChild(row);
+  });
+  if(wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function submitEdit(id, newText){
+  const text = newText.trim();
+  if(!text) return;
+  editingMessageId = null;
+  try{
+    await rpc('chatEdit', id, me.name, text, adminPw);
+  }catch(err){ notice('Could not edit', err.message); }
+  msgVer = '';
+  poll();
+}
+
+async function sendMessage(){
+  const text = messageInput.value.trim();
+  if(!text || !activeChannelId) return;
+  messageInput.value = '';
+  const chId = activeChannelId;
+  const tempId = 'tmp' + (++tempCounter);
+  messages.push({ id: tempId, user: me.name, color: me.color, text, ts: Date.now(), pending: true });
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  if(editingMessageId === null) renderMessages();
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  try{
+    await rpc('chatSend', chId, me.name, me.color, text, adminPw);
+  }catch(err){
+    messages = messages.filter(m=>m.id!==tempId);
+    renderMessages();
+    notice("Message didn't send", err.message);
+    return;
+  }
+  msgVer = '';
+  poll();
+}
+sendBtn.addEventListener('click', sendMessage);
+messageInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendMessage(); });
+
+poll();
+schedule();
+})();
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Nimbus Chat</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root{
+  --bg-page:#0B0C10;
+  --sidebar-bg:#17181D;
+  --sidebar-bg-2:#1D1E24;
+  --main-bg:#1B1C22;
+  --surface:#26272E;
+  --surface-2:#2C2D36;
+  --border:rgba(255,255,255,0.08);
+  --text-primary:#EDEDF2;
+  --text-secondary:#9497A6;
+  --text-faint:#5B5D6B;
+  --accent-indigo:#6E6FF2;
+  --accent-amber:#F2A93B;
+  --accent-green:#4CD787;
+  --accent-red:#EF5B5B;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{
+  font-family:'Inter',system-ui,sans-serif;
+  background:var(--bg-page);
+  color:var(--text-primary);
+  height:100vh;
+  overflow:hidden;
+}
+::-webkit-scrollbar{width:8px;}
+::-webkit-scrollbar-thumb{background:var(--surface-2); border-radius:4px;}
+
+.app{display:flex; height:100vh;}
+
+/* Sidebar */
+.sidebar{
+  width:240px; background:var(--sidebar-bg); display:flex; flex-direction:column; flex-shrink:0;
+  border-right:1px solid var(--border);
+}
+.server-header{
+  height:52px; display:flex; align-items:center; gap:9px; padding:0 16px;
+  font-weight:700; font-size:14.5px; border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.server-header .cloud{width:22px;height:22px; flex-shrink:0;}
+
+.channel-section-lbl{
+  font-size:10.5px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-faint);
+  padding:16px 12px 6px;
+}
+.channel-list{flex:1; overflow-y:auto; padding:0 8px;}
+.channel-item{
+  display:flex; align-items:center; gap:7px; padding:7px 10px; border-radius:7px; cursor:pointer;
+  color:var(--text-secondary); font-size:13.5px; margin-bottom:1px; position:relative;
+}
+.channel-item:hover{background:var(--sidebar-bg-2); color:var(--text-primary);}
+.channel-item.active{background:var(--surface-2); color:var(--text-primary);}
+.channel-item .hash{color:var(--text-faint); font-weight:600;}
+.channel-item.active .hash{color:var(--accent-indigo);}
+.channel-item .ch-name{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.channel-delete{
+  opacity:0; color:var(--text-faint); font-size:13px; padding:2px 5px; border-radius:4px; flex-shrink:0;
+}
+.channel-item:hover .channel-delete{opacity:1;}
+.channel-delete:hover{background:var(--accent-red); color:#fff;}
+
+.add-channel-row{display:flex; gap:6px; padding:8px;}
+.add-channel-row input{
+  flex:1; background:var(--sidebar-bg-2); border:1px solid var(--border); border-radius:7px;
+  padding:7px 9px; color:var(--text-primary); font-family:inherit; font-size:12.5px; outline:none; min-width:0;
+}
+.add-channel-row button{
+  width:30px; height:30px; border-radius:7px; border:none; background:var(--accent-indigo); color:#0B0C10;
+  font-size:16px; font-weight:700; cursor:pointer; flex-shrink:0;
+}
+.add-channel-row button:hover{filter:brightness(1.1);}
+
+.public-toggle{
+  display:flex; align-items:center; gap:4px; font-size:10.5px; color:var(--text-secondary);
+  white-space:nowrap; flex-shrink:0; cursor:pointer;
+}
+.public-toggle input{margin:0;}
+
+.join-row{display:flex; gap:6px; padding:0 8px 10px;}
+.join-row input{
+  flex:1; background:var(--sidebar-bg-2); border:1px solid var(--border); border-radius:7px;
+  padding:7px 9px; color:var(--text-primary); font-family:'JetBrains Mono',monospace; font-size:12px;
+  outline:none; min-width:0; text-transform:uppercase;
+}
+.join-row button{
+  padding:0 12px; height:30px; border-radius:7px; border:1px solid var(--border); background:var(--surface-2);
+  color:var(--text-primary); font-size:12px; font-weight:600; cursor:pointer; flex-shrink:0;
+}
+.join-row button:hover{background:var(--surface);}
+
+.user-panel{
+  display:flex; align-items:center; gap:9px; padding:10px 12px; background:var(--sidebar-bg-2);
+  border-top:1px solid var(--border); flex-shrink:0;
+}
+.user-panel .avatar{
+  width:32px;height:32px;border-radius:50%; display:flex;align-items:center;justify-content:center;
+  font-size:12px; font-weight:700; color:#0B0C10; flex-shrink:0;
+}
+.user-panel .u-name{flex:1; min-width:0; font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.user-panel .u-sub{font-size:10.5px; color:var(--text-secondary);}
+.user-panel button{
+  width:28px;height:28px;border-radius:6px; border:none; background:transparent; color:var(--text-secondary);
+  cursor:pointer; flex-shrink:0; font-size:14px;
+}
+.user-panel button:hover{background:var(--surface-2); color:var(--text-primary);}
+
+/* Main chat area */
+.chat-main{flex:1; display:flex; flex-direction:column; background:var(--main-bg); min-width:0;}
+.channel-header{
+  height:52px; display:flex; align-items:center; gap:8px; padding:0 58px 0 18px;
+  border-bottom:1px solid var(--border); font-weight:700; font-size:14.5px; flex-shrink:0;
+}
+.channel-header .hash{color:var(--text-faint);}
+.channel-header .sub{font-size:12px; color:var(--text-secondary); font-weight:400; margin-left:8px;}
+
+.messages{flex:1; overflow-y:auto; padding:18px 20px; display:flex; flex-direction:column; gap:14px;}
+.msg-row{display:flex; gap:12px;}
+.msg-row .avatar{
+  width:36px;height:36px;border-radius:50%; display:flex;align-items:center;justify-content:center;
+  font-size:13px; font-weight:700; color:#0B0C10; flex-shrink:0; margin-top:2px;
+}
+.msg-body{flex:1; min-width:0;}
+.msg-head{display:flex; align-items:baseline; gap:8px;}
+.msg-head .who{font-weight:600; font-size:14px;}
+.msg-head .time{font-size:11px; color:var(--text-faint);}
+.msg-text{font-size:14px; line-height:1.5; color:var(--text-primary); word-wrap:break-word; white-space:pre-wrap;}
+.edited-tag{font-size:10.5px; color:var(--text-faint); font-style:italic; margin-left:4px;}
+.empty-hint{margin:auto; text-align:center; color:var(--text-faint); font-size:13px; padding:40px;}
+
+.msg-actions{display:none; gap:10px; margin-top:3px;}
+.msg-row:hover .msg-actions{display:flex;}
+.msg-actions button{background:none;border:none;color:var(--text-faint);font-size:11px;cursor:pointer;padding:0;font-family:inherit;}
+.msg-actions button:hover{color:var(--text-primary); text-decoration:underline;}
+
+.edit-row{display:flex; gap:8px; margin-top:4px;}
+.edit-row input{
+  flex:1; background:var(--surface-2); border:1px solid var(--accent-indigo); border-radius:8px;
+  padding:7px 10px; color:var(--text-primary); font-family:inherit; font-size:13.5px; outline:none; min-width:0;
+}
+.edit-row button{background:var(--accent-indigo); border:none; color:#0B0C10; border-radius:6px; padding:0 10px; font-size:12px; cursor:pointer; font-weight:600;}
+.edit-row button.cancel{background:var(--surface-2); color:var(--text-primary);}
+
+.input-area{padding:0 20px 18px;}
+.input-row{
+  display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border);
+  border-radius:10px; padding:11px 14px;
+}
+.input-row input{
+  flex:1; background:none; border:none; outline:none; color:var(--text-primary);
+  font-family:inherit; font-size:14px; min-width:0;
+}
+.input-row input::placeholder{color:var(--text-faint);}
+.input-row button{
+  width:32px;height:32px;border-radius:8px; border:none; background:var(--accent-indigo); color:#0B0C10;
+  display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;
+}
+.input-row button svg{width:15px;height:15px;}
+
 /* Modal (replaces native prompt/alert so it works when embedded) */
 .modal-overlay{
   position:fixed; inset:0; background:rgba(8,8,10,0.65); backdrop-filter:blur(2px);
