@@ -164,6 +164,12 @@ body{
 }
 .input-row button svg{width:15px;height:15px;}
 
+#authOverlay{z-index:1100; background:rgba(8,8,10,0.94);}
+.auth-link{
+  display:block; width:100%; margin-top:14px; background:none; border:none; color:var(--text-secondary);
+  font-family:inherit; font-size:12.5px; cursor:pointer; text-decoration:underline;
+}
+.auth-link:hover{color:var(--text-primary);}
 #userAvatar{cursor:pointer;}
 #userAvatar:hover{filter:brightness(1.15);}
 .av-preview{
@@ -230,9 +236,9 @@ body{
       <div class="avatar" id="userAvatar"></div>
       <div style="flex:1; min-width:0;">
         <div class="u-name" id="userNameDisplay"></div>
-        <div class="u-sub">Online</div>
+        <div class="u-sub" id="userSub">Online</div>
       </div>
-      <button id="editNameBtn" title="Change name">✎</button>
+      <button id="editNameBtn" title="Log out"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg></button>
     </div>
   </aside>
 
@@ -249,6 +255,21 @@ body{
       </div>
     </div>
   </main>
+</div>
+
+<div class="modal-overlay" id="authOverlay" style="display:flex;">
+  <div class="modal-box">
+    <h3>Nimbus Chat</h3>
+    <p class="modal-sub">Log in or create an account, or jump in as a guest.</p>
+    <div class="modal-field"><input id="authName" placeholder="Username" maxlength="20" autocomplete="username"></div>
+    <div class="modal-field"><input id="authPass" type="password" placeholder="Password" maxlength="100" autocomplete="current-password"></div>
+    <p class="modal-error" id="authErr"></p>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="authSignup">Sign up</button>
+      <button class="btn-confirm" id="authLogin">Log in</button>
+    </div>
+    <button class="auth-link" id="authGuest">Continue as guest</button>
+  </div>
 </div>
 
 <div class="modal-overlay" id="avOverlay" style="display:none;">
@@ -338,27 +359,22 @@ function isReserved(n){
   return k === 'cs' || k === 'nimbuscs';
 }
 
-// ---------- saved display name ----------
+// ---------- identity: the name comes from your account / guest login; only the colour is remembered ----------
 const NAME_KEY = 'nimbus-chat-identity';
 function loadIdentity(){
   const fresh = randomIdentity();
+  fresh.name = '';
   try{
     const s = JSON.parse(localStorage.getItem(NAME_KEY) || 'null');
-    if(s && typeof s.name === 'string'){
-      const name = s.name.trim().slice(0,20);
-      if(name && !isReserved(name)){          // admin name always needs the password
-        fresh.name = name;
-        if(/^#[0-9A-Fa-f]{6}$/.test(s.color)) fresh.color = s.color;
-      }
-    }
+    if(s && /^#[0-9A-Fa-f]{6}$/.test(s.color)) fresh.color = s.color;
   }catch(e){}
   return fresh;
 }
 function saveIdentity(){
-  try{ localStorage.setItem(NAME_KEY, JSON.stringify({ name: me.name, color: me.color })); }catch(e){}
+  try{ localStorage.setItem(NAME_KEY, JSON.stringify({ color: me.color })); }catch(e){}
 }
 let me = loadIdentity();
-saveIdentity();   // keeps the random name too, so it doesn't change next visit
+saveIdentity();
 
 let adminPw = '';
 let channels = [];
@@ -368,7 +384,8 @@ let msgVer = '', chanVer = '';
 let editingMessageId = null;
 let tempCounter = 0;
 let avatarMap = {}, avVer = '', localAv = null;
-try{ localAv = localStorage.getItem('nimbus-chat-avatar') || null; }catch(e){}
+let session = null;   // { token, name, guest } for account / guest logins (the admin has no session)
+function tokenOf(){ return session ? session.token : ''; }
 
 const channelListEl = document.getElementById('channelList');
 const channelTitleEl = document.getElementById('channelTitle');
@@ -478,49 +495,102 @@ async function confirmDialog(title, text){
   return !!r;
 }
 
-editNameBtn.addEventListener('click', async ()=>{
-  const nameResult = await showModal({
-    title: 'Set display name',
-    subtitle: "This is what others in the chat will see.",
-    fields: [{ id:'name', placeholder:'Display name', value: me.name, maxLength:20 }],
-    confirmLabel: 'Continue'
-  });
-  if(!nameResult) return;
-  const trimmed = nameResult.name.slice(0,20);
-  if(!trimmed) return;
+editNameBtn.addEventListener('click', ()=>logout());
+publicToggleWrap.style.display = 'none';
+renderUserPanel();
 
-  if(isReserved(trimmed)){
-    const passResult = await showModal({
-      title: 'Admin verification',
-      subtitle: `"${trimmed}" is a reserved name. Enter the password to use it.`,
-      fields: [{ id:'password', type:'password', placeholder:'Password', maxLength:100 }],
-      confirmLabel: 'Verify',
-      validate: async (v)=>{
-        const ok = await rpc('chatCheckAdmin', v.password);
-        if(ok){ adminPw = v.password; return true; }
-        return 'Incorrect password.';
-      }
-    });
-    if(!passResult) return;
-    me.isAdmin = true;
-  } else {
-    me.isAdmin = false;
-    adminPw = '';
-  }
-  me.name = trimmed;
-  if(!me.isAdmin) saveIdentity();
-  renderUserPanel();
+// ---------- login / sign up / guest ----------
+const SES_KEY = 'nimbus-chat-session';
+const authOverlay = document.getElementById('authOverlay');
+const authName = document.getElementById('authName');
+const authPass = document.getElementById('authPass');
+const authErr = document.getElementById('authErr');
+const authBtns = ['authSignup','authLogin','authGuest'].map(id=>document.getElementById(id));
+let authBusy = false;
+function saveSession(){
+  try{ if(session) localStorage.setItem(SES_KEY, JSON.stringify(session)); else localStorage.removeItem(SES_KEY); }catch(e){}
+}
+function authShow(msg){
+  authErr.textContent = msg || '';
+  authPass.value = '';
+  authOverlay.style.display = 'flex';
+  setTimeout(()=>authName.focus(), 20);
+}
+function setAuthBusy(b){ authBusy = b; authBtns.forEach(x=>{ x.disabled = b; }); }
+function enterApp(name, token, guest, admin){
+  session = admin ? null : { token: token, name: name, guest: !!guest };
+  saveSession();
+  me.name = name;
+  me.isAdmin = !!admin;
+  if(!admin) adminPw = '';
+  loadLocalAv();
+  authOverlay.style.display = 'none';
+  authName.value = ''; authPass.value = ''; authErr.textContent = '';
+  document.getElementById('userSub').textContent = admin ? 'Online' : (guest ? 'Guest' : 'Online');
   publicToggleWrap.style.display = me.isAdmin ? 'flex' : 'none';
+  renderUserPanel();
   renderChannelList();
   renderMessages();
   syncTries = 0;
   syncAvatar();
-});
-publicToggleWrap.style.display = 'none';
-renderUserPanel();
+}
+function logout(msg){
+  session = null;
+  saveSession();
+  me.name = ''; me.isAdmin = false; adminPw = ''; localAv = null;
+  editingMessageId = null;
+  publicToggleWrap.style.display = 'none';
+  renderUserPanel();
+  renderChannelList();
+  renderMessages();
+  authShow(msg || '');
+}
+async function doAuth(mode){
+  if(authBusy) return;
+  authErr.textContent = '';
+  setAuthBusy(true);
+  try{
+    if(mode === 'guest'){
+      const r = await rpc('chatGuest');
+      enterApp(r.name, r.token, true, false);
+      return;
+    }
+    const name = authName.value.trim(), pass = authPass.value;
+    if(!name || !pass) throw new Error('Enter a username and password.');
+    if(isReserved(name)){
+      const ok = await rpc('chatCheckAdmin', pass);
+      if(!ok) throw new Error('Incorrect password.');
+      adminPw = pass;
+      enterApp(ADMIN_NAME, null, false, true);
+      return;
+    }
+    const r = await rpc(mode === 'signup' ? 'chatSignup' : 'chatLogin', name, pass);
+    enterApp(r.name, r.token, false, false);
+  }catch(err){
+    authErr.textContent = err.message;
+  }finally{
+    setAuthBusy(false);
+  }
+}
+document.getElementById('authLogin').addEventListener('click', ()=>doAuth('login'));
+document.getElementById('authSignup').addEventListener('click', ()=>doAuth('signup'));
+document.getElementById('authGuest').addEventListener('click', ()=>doAuth('guest'));
+[authName, authPass].forEach(el=>el.addEventListener('keydown', e=>{ if(e.key === 'Enter') doAuth('login'); }));
+async function resumeSession(){
+  let s = null;
+  try{ s = JSON.parse(localStorage.getItem(SES_KEY) || 'null'); }catch(e){}
+  if(!s || !s.token){ authShow(''); return; }
+  authShow('Signing in...');
+  try{
+    const r = await rpc('chatWhoAmI', s.token);
+    if(r){ enterApp(r.name, s.token, r.guest, false); return; }
+  }catch(e){}
+  authShow('');
+}
 
 // ---------- profile picture ----------
-const AV_KEY = 'nimbus-chat-avatar';
+function avKey(){ return 'nimbus-chat-avatar:' + String(me.name).toLowerCase(); }
+function loadLocalAv(){ try{ localAv = localStorage.getItem(avKey()) || null; }catch(e){ localAv = null; } }
 let syncTries = 0, syncing = false;
 function paintAvatar(el, name, color){
   const img = (name === me.name && localAv) ? localAv : avatarMap[name];   // your own picture never depends on the server copy
@@ -538,7 +608,11 @@ const avError = document.getElementById('avError');
 const avFile = document.getElementById('avFile');
 function avErr(t){ avError.textContent = t || ''; }
 function refreshAvPreview(){ paintAvatar(avPreview, me.name, me.color); }
-userAvatar.addEventListener('click', ()=>{ avErr(''); refreshAvPreview(); avOverlay.style.display = 'flex'; });
+userAvatar.addEventListener('click', ()=>{
+  if(!me.name) return;
+  if(session && session.guest){ notice('Profile picture', 'Create an account to set a profile picture.'); return; }
+  avErr(''); refreshAvPreview(); avOverlay.style.display = 'flex';
+});
 document.getElementById('avClose').addEventListener('click', ()=>{ avOverlay.style.display = 'none'; });
 document.getElementById('avChoose').addEventListener('click', ()=>avFile.click());
 function resizeImage(file){
@@ -561,10 +635,10 @@ function resizeImage(file){
   });
 }
 async function saveAvatar(data){
-  await rpc('chatSetAvatar', me.name, data, adminPw);
+  await rpc('chatSetAvatar', me.name, data, adminPw, tokenOf());
   localAv = data || null;
   if(data) avatarMap[me.name] = data; else delete avatarMap[me.name];
-  try{ if(data) localStorage.setItem(AV_KEY, data); else localStorage.removeItem(AV_KEY); }catch(e){}
+  try{ if(data) localStorage.setItem(avKey(), data); else localStorage.removeItem(avKey()); }catch(e){}
   avVer = '';
   renderUserPanel(); refreshAvPreview();
   if(editingMessageId === null) renderMessages();
@@ -585,7 +659,7 @@ document.getElementById('avRemove').addEventListener('click', async ()=>{
 function syncAvatar(){
   if(!localAv || avatarMap[me.name] || syncing || syncTries >= 3) return;
   syncing = true; syncTries++;
-  rpc('chatSetAvatar', me.name, localAv, adminPw)
+  rpc('chatSetAvatar', me.name, localAv, adminPw, tokenOf())
     .then(()=>{ avVer = ''; poll(); })
     .catch(()=>{})
     .then(()=>{ syncing = false; });
@@ -811,7 +885,7 @@ function renderMessages(){
       delBtn.addEventListener('click', async ()=>{
         if(!(await confirmDialog('Delete message?', 'This cannot be undone.'))) return;
         try{
-          await rpc('chatDelete', m.id, me.name, adminPw);
+          await rpc('chatDelete', m.id, me.name, adminPw, tokenOf());
           msgVer = ''; poll();
         }catch(err){ notice('Could not delete', err.message); }
       });
@@ -830,7 +904,7 @@ async function submitEdit(id, newText){
   if(!text) return;
   editingMessageId = null;
   try{
-    await rpc('chatEdit', id, me.name, text, adminPw);
+    await rpc('chatEdit', id, me.name, text, adminPw, tokenOf());
   }catch(err){ notice('Could not edit', err.message); }
   msgVer = '';
   poll();
@@ -847,10 +921,11 @@ async function sendMessage(){
   if(editingMessageId === null) renderMessages();
   messagesEl.scrollTop = messagesEl.scrollHeight;
   try{
-    await rpc('chatSend', chId, me.name, me.color, text, adminPw);
+    await rpc('chatSend', chId, me.name, me.color, text, adminPw, tokenOf());
   }catch(err){
     messages = messages.filter(m=>m.id!==tempId);
     renderMessages();
+    if(/log in again/i.test(err.message)){ logout('Your login expired. Please log in again.'); return; }
     notice("Message didn't send", err.message);
     return;
   }
@@ -860,6 +935,7 @@ async function sendMessage(){
 sendBtn.addEventListener('click', sendMessage);
 messageInput.addEventListener('keydown', e=>{ if(e.key==='Enter') sendMessage(); });
 
+resumeSession();
 poll();
 schedule();
 })();
