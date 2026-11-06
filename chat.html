@@ -912,11 +912,21 @@ const plusBtn = document.getElementById('plusBtn');
 const plusFile = document.getElementById('plusFile');
 const plusMenu = document.getElementById('plusMenu');
 function closePlusMenu(){ plusMenu.style.display = 'none'; }
-plusBtn.addEventListener('click', (e)=>{
-  e.stopPropagation();
-  if(!activeChannelId || !me.name) return;
-  plusMenu.style.display = plusMenu.style.display === 'block' ? 'none' : 'block';
-});
+// the menu appears when you hover the + (or tap it on a touch screen) and closes shortly after the mouse leaves
+let plusTimer = null;
+function showPlusMenu(){
+  clearTimeout(plusTimer);
+  if(activeChannelId && me.name) plusMenu.style.display = 'block';
+}
+function hidePlusMenuSoon(){
+  clearTimeout(plusTimer);
+  plusTimer = setTimeout(closePlusMenu, 300);
+}
+plusBtn.addEventListener('mouseenter', showPlusMenu);
+plusBtn.addEventListener('mouseleave', hidePlusMenuSoon);
+plusMenu.addEventListener('mouseenter', ()=>clearTimeout(plusTimer));
+plusMenu.addEventListener('mouseleave', hidePlusMenuSoon);
+plusBtn.addEventListener('click', (e)=>{ e.stopPropagation(); showPlusMenu(); });
 document.addEventListener('click', (e)=>{ if(!plusMenu.contains(e.target)) closePlusMenu(); });
 document.getElementById('menuUpload').addEventListener('click', ()=>{ closePlusMenu(); plusFile.click(); });
 
