@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nimbus Voice</title>
+<style>
+:root{
+  --bg:#16161d; --panel:#1c1c26; --panel-2:#23232f; --border:rgba(255,255,255,0.08);
+  --text:#f1f1f5; --muted:#9a9aab; --accent:#6d6af2; --green:#4cd787; --red:#ef5b5b; --amber:#f2a93b;
+}
+*{box-sizing:border-box;}
+html,body{margin:0; height:100%;}
+body{font-family:Inter,"Segoe UI",Arial,sans-serif; background:var(--bg); color:var(--text); display:flex; justify-content:center;}
+.wrap{width:100%; max-width:460px; height:100%; display:flex; flex-direction:column; padding:18px;}
+header{display:flex; align-items:center; gap:12px; padding-bottom:14px; border-bottom:1px solid var(--border);}
+.logo{width:40px; height:40px; border-radius:12px; background:linear-gradient(135deg,#7a6cf5,#e8a458); display:grid; place-items:center; flex:none;}
+.title{font-weight:700; font-size:16px;}
+.sub{font-size:12.5px; color:var(--muted); margin-top:2px;}
+#people{flex:1; overflow-y:auto; padding:14px 0; display:flex; flex-direction:column; gap:8px;}
+.person{display:flex; align-items:center; gap:12px; padding:10px 12px; background:var(--panel); border:1px solid var(--border); border-radius:12px;}
+.av{width:40px; height:40px; border-radius:50%; display:grid; place-items:center; font-weight:700; font-size:14px; color:#0b0c10; flex:none; box-shadow:0 0 0 0 var(--green); transition:box-shadow .12s ease;}
+.person.speaking .av{box-shadow:0 0 0 3px var(--green);}
+.pname{flex:1; min-width:0; font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.pstate{font-size:12px; color:var(--muted);}
+.pstate.ok{color:var(--green);} .pstate.bad{color:var(--red);}
+#note{min-height:20px; font-size:12.5px; color:var(--amber); line-height:1.5; padding-bottom:8px;}
+#note.err{color:var(--red);}
+footer{display:flex; gap:10px; padding-top:12px; border-top:1px solid var(--border);}
+button{flex:1; padding:12px; border-radius:10px; border:1px solid var(--border); background:var(--panel-2); color:var(--text); font-family:inherit; font-size:14px; font-weight:600; cursor:pointer;}
+button:hover{border-color:rgba(255,255,255,.25);}
+button.muted{background:var(--red); border-color:var(--red); color:#fff;}
+button.danger{background:#3a2226; border-color:#5a2b30; color:#ff9a9a;}
+button.danger:hover{background:var(--red); color:#fff;}
+button:disabled{opacity:.5; cursor:default;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="#15151c"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg></div>
+    <div><div class="title" id="title">Voice</div><div class="sub" id="status">Starting...</div></div>
+  </header>
+  <div id="people"></div>
+  <div id="note"></div>
+  <footer>
+    <button id="muteBtn" disabled>Mute</button>
+    <button id="leaveBtn" class="danger">Leave</button>
+  </footer>
+</div>
+
+<script>
+(function(){
+var H = new URLSearchParams(location.hash.slice(1));
+var API = H.get('u') || '', CH = H.get('c') || '', CHNAME = H.get('n') || 'voice', TOKEN = H.get('t') || '';
+var COLORS = ['#6E6FF2','#F2A93B','#4CD787','#EF5B5B','#3BB0F2','#F2799E','#8CE07A','#C792EA'];
+var $ = function(id){ return document.getElementById(id); };
+$('title').textContent = '🔊 ' + CHNAME;
+
+var me = null, local = null, iceServers = [], peers = {}, left = false, muted = false, pollFails = 0;
+
+function say(t){ $('status').textContent = t; }
+function note(t, err){ $('note').textContent = t || ''; $('note').className = err ? 'err' : ''; }
+function colorFor(name){ var h = 0; for(var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0; return COLORS[h % COLORS.length]; }
+
+// ----- talking to Apps Script (text/plain keeps the browser from sending a preflight request) -----
+function okApi(){ return /^https:\/\/script\.google(usercontent)?\.com\//.test(API) || /^http:\/\/(localhost|127\.0\.0\.1)[:\/]/.test(API); }
+function api(fn){
+  var args = Array.prototype.slice.call(arguments, 1);
+  return fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args }) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){ if(!j.ok) throw new Error(j.error || 'Request failed.'); return j.value; });
+}
+
+// ----- the list of people -----
+function render(){
+  var box = $('people');
+  box.innerHTML = '';
+  function row(id, name, state, cls, isMe){
+    var d = document.createElement('div');
+    d.className = 'person'; d.id = 'row-' + id;
+    var av = document.createElement('div');
+    av.className = 'av'; av.style.background = colorFor(name); av.textContent = name.slice(0, 2).toUpperCase();
+    var n = document.createElement('div');
+    n.className = 'pname'; n.textContent = name + (isMe ? ' (you)' : '');
+    var s = document.createElement('div');
+    s.className = 'pstate ' + (cls || ''); s.textContent = state;
+    d.appendChild(av); d.appendChild(n); d.appendChild(s);
+    box.appendChild(d);
+  }
+  if(me) row('me', me.name, muted ? 'muted' : 'connected', muted ? 'bad' : 'ok', true);
+  Object.keys(peers).forEach(function(id){
+    var p = peers[id], st = p.failed ? "can't connect" : (p.state === 'connected' ? 'connected' : 'connecting...');
+    row(id, p.name, st, p.failed ? 'bad' : (p.state === 'connected' ? 'ok' : ''), false);
+  });
+  var n = Object.keys(peers).length + 1;
+  say(n === 1 ? "You're the only one here" : n + ' people in the call');
+}
+
+// ----- speaking rings -----
+var ac = null;
+function level(stream){
+  try{
+    var AC = window.AudioContext || window.webkitAudioContext;
+    ac = ac || new AC();
+    var an = ac.createAnalyser(); an.fftSize = 512;
+    ac.createMediaStreamSource(stream).connect(an);
+    var buf = new Uint8Array(an.fftSize);
+    return function(){
+      an.getByteTimeDomainData(buf);
+      var s = 0;
+      for(var i = 0; i < buf.length; i++){ var v = (buf[i] - 128) / 128; s += v * v; }
+      return Math.sqrt(s / buf.length);
+    };
+  }catch(e){ return null; }
+}
+var myLevel = null;
+setInterval(function(){
+  var r = $('row-me');
+  if(r) r.classList.toggle('speaking', !muted && !!myLevel && myLevel() > 0.04);
+  Object.keys(peers).forEach(function(id){
+    var el = $('row-' + id), p = peers[id];
+    if(el) el.classList.toggle('speaking', !!p.level && p.level() > 0.04);
+  });
+}, 120);
+
+// ----- WebRTC -----
+function iceDone(pc, ms){
+  return new Promise(function(res){
+    if(pc.iceGatheringState === 'complete') return res();
+    var t = setTimeout(done, ms);
+    function chk(){ if(pc.iceGatheringState === 'complete') done(); }
+    function done(){ clearTimeout(t); pc.removeEventListener('icegatheringstatechange', chk); res(); }
+    pc.addEventListener('icegatheringstatechange', chk);
+  });
+}
+function newPC(p){
+  if(p.pc){ try{ p.pc.close(); }catch(e){} }
+  var pc = new RTCPeerConnection({ iceServers: iceServers });
+  p.pc = pc;
+  local.getTracks().forEach(function(t){ pc.addTrack(t, local); });
+  pc.ontrack = function(e){
+    var stream = e.streams[0];
+    if(!p.audio){ p.audio = document.createElement('audio'); p.audio.autoplay = true; p.audio.setAttribute('playsinline', ''); document.body.appendChild(p.audio); }
+    p.audio.srcObject = stream;
+    var pr = p.audio.play();
+    if(pr && pr.catch) pr.catch(function(){ note('Click anywhere on this page to turn on sound.'); });
+    p.level = level(stream);
+  };
+  pc.onconnectionstatechange = function(){
+    p.state = pc.connectionState;
+    if(p.state === 'connected'){ p.failed = false; note(''); }
+    render();
+  };
+  return pc;
+}
+function sendSignal(to, type, desc){
+  return api('voiceSignal', TOKEN, CH, me.peerId, to, { t: type, d: JSON.stringify({ type: desc.type, sdp: desc.sdp }) });
+}
+function callPeer(p){
+  p.offerer = true; p.startedAt = Date.now();
+  var pc = newPC(p);
+  return pc.createOffer()
+    .then(function(o){ return pc.setLocalDescription(o); })
+    .then(function(){ return iceDone(pc, 2500); })
+    .then(function(){ return sendSignal(p.id, 'offer', pc.localDescription); })
+    .catch(function(e){ note('Could not call ' + p.name + ': ' + e.message, true); });
+}
+function answerPeer(p, desc){
+  p.offerer = false;
+  var pc = newPC(p);
+  return pc.setRemoteDescription(desc)
+    .then(function(){ return pc.createAnswer(); })
+    .then(function(a){ return pc.setLocalDescription(a); })
+    .then(function(){ return iceDone(pc, 2500); })
+    .then(function(){ return sendSignal(p.id, 'answer', pc.localDescription); })
+    .catch(function(e){ note('Could not answer ' + p.name + ': ' + e.message, true); });
+}
+function closePeer(id){
+  var p = peers[id];
+  if(!p) return;
+  try{ p.pc && p.pc.close(); }catch(e){}
+  if(p.audio){ p.audio.srcObject = null; p.audio.remove(); }
+  delete peers[id];
+}
+function syncPeers(list){
+  var seen = {};
+  list.forEach(function(x){
+    seen[x.id] = true;
+    if(!peers[x.id]){
+      peers[x.id] = { id: x.id, name: x.n, seq: x.s, state: 'new', attempts: 0 };
+      if(x.s < me.seq) callPeer(peers[x.id]);        // whoever joined later makes the call
+    }
+  });
+  Object.keys(peers).forEach(function(id){ if(!seen[id]) closePeer(id); });
+}
+function handleSignal(s){
+  var p = peers[s.from];
+  if(!p) return;
+  var desc;
+  try{ desc = JSON.parse(s.d); }catch(e){ return; }
+  if(s.t === 'offer') answerPeer(p, desc);
+  else if(s.t === 'answer' && p.pc && p.pc.signalingState === 'have-local-offer') p.pc.setRemoteDescription(desc).catch(function(){});
+}
+// calls that never connect are retried a couple of times, then reported
+setInterval(function(){
+  Object.keys(peers).forEach(function(id){
+    var p = peers[id];
+    if(p.state === 'connected' || !p.offerer || !p.startedAt || Date.now() - p.startedAt < 15000) return;
+    if(p.attempts < 2){ p.attempts++; callPeer(p); }
+    else if(!p.failed){
+      p.failed = true; render();
+      note("Couldn't connect to " + p.name + ". One of your networks may block voice calls.", true);
+    }
+  });
+}, 3000);
+
+// ----- polling -----
+function poll(){
+  if(left) return;
+  api('voicePoll', TOKEN, CH, me.peerId).then(function(r){
+    pollFails = 0;
+    syncPeers(r.peers || []);
+    (r.signals || []).forEach(handleSignal);
+    render();
+    setTimeout(poll, 1200);
+  }).catch(function(e){
+    if(/left the voice|log in again/i.test(e.message)){ left = true; note(e.message, true); say('Disconnected'); return; }
+    if(++pollFails >= 6){ note('Lost connection to the server. Close this window and join again.', true); return; }
+    setTimeout(poll, 2000);
+  });
+}
+
+// ----- buttons -----
+$('muteBtn').addEventListener('click', function(){
+  muted = !muted;
+  local.getAudioTracks().forEach(function(t){ t.enabled = !muted; });
+  $('muteBtn').textContent = muted ? 'Unmute' : 'Mute';
+  $('muteBtn').className = muted ? 'muted' : '';
+  render();
+});
+function leave(){
+  if(left && !me) return;
+  left = true;
+  try{
+    if(me) navigator.sendBeacon(API, JSON.stringify({ fn: 'voiceLeave', args: [TOKEN, CH, me.peerId] }));
+  }catch(e){}
+}
+$('leaveBtn').addEventListener('click', function(){
+  leave();
+  Object.keys(peers).forEach(closePeer);
+  if(local) local.getTracks().forEach(function(t){ t.stop(); });
+  say('You left the call');
+  $('leaveBtn').disabled = true; $('muteBtn').disabled = true;
+  window.close();
+});
+window.addEventListener('pagehide', leave);
+document.addEventListener('click', function(){
+  if(ac && ac.state === 'suspended') ac.resume();
+  Object.keys(peers).forEach(function(id){ var a = peers[id].audio; if(a && a.paused) a.play().catch(function(){}); });
+  if($('note').textContent.indexOf('Click anywhere') === 0) note('');
+});
+
+// ----- start -----
+function start(){
+  if(!API || !CH || !TOKEN || !okApi()){ note('This link is incomplete. Open the voice channel again from the chat.', true); say('Cannot start'); return; }
+  if(!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    note("This browser can't do voice calls.", true); say('Cannot start'); return;
+  }
+  say('Asking for your microphone...');
+  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false })
+    .then(function(stream){
+      local = stream;
+      say('Joining...');
+      return api('voiceJoin', TOKEN, CH);
+    })
+    .then(function(j){
+      me = j; iceServers = j.ice || [];
+      myLevel = level(local);
+      $('muteBtn').disabled = false;
+      render();
+      syncPeers(j.peers || []);
+      render();
+      setTimeout(poll, 800);
+    })
+    .catch(function(e){
+      say('Cannot start');
+      if(e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) note('The microphone is blocked. Click the lock icon in the address bar, allow the microphone, then reload this page.', true);
+      else if(e && e.name === 'NotFoundError') note('No microphone was found.', true);
+      else note((e && e.message) || 'Could not join.', true);
+      if(local) local.getTracks().forEach(function(t){ t.stop(); });
+    });
+}
+start();
+})();
+</script>
+</body>
+</html>
