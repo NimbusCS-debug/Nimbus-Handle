@@ -264,6 +264,7 @@ body{
         <div class="u-name" id="userNameDisplay"></div>
         <div class="u-sub" id="userSub">Online</div>
       </div>
+      <button id="bansBtn" title="Manage bans" style="display:none;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg></button>
       <button id="editNameBtn" title="Log out"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg></button>
     </div>
   </aside>
@@ -437,6 +438,12 @@ let avatarMap = {}, avVer = '', localAv = null;
 let session = null;
 let voiceMembers = {}, voiceSig = '';   // { token, name, guest } for account / guest logins (the admin has no session)
 function tokenOf(){ return session ? session.token : ''; }
+let deviceId = '';
+try{ deviceId = localStorage.getItem('nimbus_device') || ''; }catch(e){}
+if(!deviceId){
+  deviceId = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now().toString(36));
+  try{ localStorage.setItem('nimbus_device', deviceId); }catch(e){}
+}
 
 const channelListEl = document.getElementById('channelList');
 const channelTitleEl = document.getElementById('channelTitle');
@@ -548,6 +555,33 @@ async function confirmDialog(title, text){
 }
 
 editNameBtn.addEventListener('click', ()=>logout());
+const bansBtn = document.getElementById('bansBtn');
+bansBtn.addEventListener('click', async ()=>{
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay'; ov.style.display = 'flex';
+  const box = document.createElement('div'); box.className = 'modal-box';
+  box.innerHTML = '<h3>Manage bans</h3><div id="banList" style="max-height:260px;overflow:auto;margin:8px 0;"></div><div class="modal-actions"><button class="btn-confirm" id="banClose">Close</button></div>';
+  ov.appendChild(box); document.body.appendChild(ov);
+  box.querySelector('#banClose').addEventListener('click', ()=>ov.remove());
+  const list = box.querySelector('#banList');
+  async function load(){
+    list.textContent = 'Loading...';
+    try{
+      const bans = await rpc('chatListBans', adminPw, tokenOf());
+      list.textContent = '';
+      if(!bans.length){ list.textContent = 'Nobody is banned.'; return; }
+      bans.forEach(b=>{
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;font-size:13px;';
+        const t = document.createElement('span'); t.textContent = b.label;
+        const u = document.createElement('button'); u.className = 'btn-cancel'; u.textContent = 'Unban';
+        u.addEventListener('click', async ()=>{ u.disabled = true; try{ await rpc('chatUnban', b.type, b.key, adminPw, tokenOf()); }catch(e){} load(); });
+        row.appendChild(t); row.appendChild(u); list.appendChild(row);
+      });
+    }catch(err){ list.textContent = err.message; }
+  }
+  load();
+});
 publicToggleWrap.style.display = 'none';
 renderUserPanel();
 
@@ -580,6 +614,7 @@ function enterApp(name, token, guest, admin){
   authName.value = ''; authPass.value = ''; authErr.textContent = '';
   document.getElementById('userSub').textContent = admin ? 'Online' : (guest ? 'Guest' : 'Online');
   publicToggleWrap.style.display = me.isAdmin ? 'flex' : 'none';
+  bansBtn.style.display = me.isAdmin ? '' : 'none';
   renderUserPanel();
   renderChannelList();
   renderMessages();
@@ -592,6 +627,7 @@ function logout(msg){
   me.name = ''; me.isAdmin = false; adminPw = ''; localAv = null;
   editingMessageId = null;
   publicToggleWrap.style.display = 'none';
+  bansBtn.style.display = 'none';
   renderUserPanel();
   renderChannelList();
   renderMessages();
@@ -603,7 +639,7 @@ async function doAuth(mode){
   setAuthBusy(true);
   try{
     if(mode === 'guest'){
-      const r = await rpc('chatGuest');
+      const r = await rpc('chatGuest', deviceId);
       enterApp(r.name, r.token, true, false);
       return;
     }
@@ -614,7 +650,7 @@ async function doAuth(mode){
       enterApp(r.name, r.token, false, true);
       return;
     }
-    const r = await rpc(mode === 'signup' ? 'chatSignup' : 'chatLogin', name, pass);
+    const r = await rpc(mode === 'signup' ? 'chatSignup' : 'chatLogin', name, pass, deviceId);
     enterApp(r.name, r.token, false, false);
   }catch(err){
     authErr.textContent = err.message;
@@ -634,7 +670,7 @@ async function resumeSession(){
   try{
     const r = await rpc('chatWhoAmI', s.token);
     if(r){ enterApp(r.name, s.token, r.guest, !!r.admin); return; }
-  }catch(e){}
+  }catch(e){ if(/banned/i.test(e.message)){ authShow('You are banned.'); return; } }
   authShow('');
 }
 
@@ -991,7 +1027,7 @@ async function sendGif(id){
   const typed = messageInput.value.trim();
   messageInput.value = '';
   try{
-    await rpc('chatSend', chId, me.name, me.color, (typed ? typed + '\n' : '') + 'https://media.giphy.com/media/' + id + '/giphy.gif', adminPw, tokenOf());
+    await rpc('chatSend', chId, me.name, me.color, (typed ? typed + '\n' : '') + 'https://media.giphy.com/media/' + id + '/giphy.gif', adminPw, tokenOf(), deviceId);
     msgVer = '';
     poll();
   }catch(err){
@@ -1013,7 +1049,7 @@ plusFile.addEventListener('change', async ()=>{
     imageCache[id] = data;
     const typed = messageInput.value.trim();
     messageInput.value = '';
-    await rpc('chatSend', chId, me.name, me.color, (typed ? typed + '\n' : '') + '[img:' + id + ']', adminPw, tokenOf());
+    await rpc('chatSend', chId, me.name, me.color, (typed ? typed + '\n' : '') + '[img:' + id + ']', adminPw, tokenOf(), deviceId);
     msgVer = '';
     poll();
   }catch(err){
@@ -1352,6 +1388,16 @@ function renderMessages(){
         }catch(err){ notice('Could not delete', err.message); }
       });
       actions.appendChild(editBtn); actions.appendChild(delBtn);
+      if(me.isAdmin && !mine && !isReserved(m.user)){
+        const banBtn = document.createElement('button');
+        banBtn.textContent = 'Ban';
+        banBtn.addEventListener('click', async ()=>{
+          if(!(await confirmDialog('Ban ' + m.user + '?', 'They are logged out and blocked, and so is the device they sent this from. You can undo it in Manage bans.'))) return;
+          try{ await rpc('chatBan', m.id, adminPw, tokenOf()); notice('Banned', m.user + ' is banned.'); }
+          catch(err){ notice('Could not ban', err.message); }
+        });
+        actions.appendChild(banBtn);
+      }
       body.appendChild(actions);
     }
 
@@ -1383,10 +1429,11 @@ async function sendMessage(){
   if(editingMessageId === null) renderMessages();
   messagesEl.scrollTop = messagesEl.scrollHeight;
   try{
-    await rpc('chatSend', chId, me.name, me.color, text, adminPw, tokenOf());
+    await rpc('chatSend', chId, me.name, me.color, text, adminPw, tokenOf(), deviceId);
   }catch(err){
     messages = messages.filter(m=>m.id!==tempId);
     renderMessages();
+    if(/banned/i.test(err.message)){ logout('You are banned.'); return; }
     if(/log in again/i.test(err.message)){ logout('Your login expired. Please log in again.'); return; }
     notice("Message didn't send", err.message);
     return;
