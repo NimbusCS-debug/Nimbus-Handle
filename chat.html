@@ -565,11 +565,11 @@ function authShow(msg){
 }
 function setAuthBusy(b){ authBusy = b; authBtns.forEach(x=>{ x.disabled = b; }); }
 function enterApp(name, token, guest, admin){
-  session = admin ? null : { token: token, name: name, guest: !!guest };
+  session = { token: token, name: name, guest: !!guest, admin: !!admin };
   saveSession();
   me.name = name;
   me.isAdmin = !!admin;
-  if(!admin) adminPw = '';
+  adminPw = '';                       // the password is never kept; the admin stays logged in with a token
   loadLocalAv();
   authOverlay.style.display = 'none';
   authName.value = ''; authPass.value = ''; authErr.textContent = '';
@@ -605,10 +605,8 @@ async function doAuth(mode){
     const name = authName.value.trim(), pass = authPass.value;
     if(!name || !pass) throw new Error('Enter a username and password.');
     if(isReserved(name)){
-      const ok = await rpc('chatCheckAdmin', pass);
-      if(!ok) throw new Error('Incorrect password.');
-      adminPw = pass;
-      enterApp(ADMIN_NAME, null, false, true);
+      const r = await rpc('chatAdminLogin', pass);
+      enterApp(r.name, r.token, false, true);
       return;
     }
     const r = await rpc(mode === 'signup' ? 'chatSignup' : 'chatLogin', name, pass);
@@ -630,7 +628,7 @@ async function resumeSession(){
   authShow('Signing in...');
   try{
     const r = await rpc('chatWhoAmI', s.token);
-    if(r){ enterApp(r.name, s.token, r.guest, false); return; }
+    if(r){ enterApp(r.name, s.token, r.guest, !!r.admin); return; }
   }catch(e){}
   authShow('');
 }
@@ -1097,7 +1095,7 @@ function renderChannelList(){
 async function deleteChannel(ch){
   if(!(await confirmDialog('Delete #'+ch.name+'?', "This deletes the channel and all its messages. It can't be undone."))) return;
   try{
-    await rpc('chatDeleteChannel', ch.id, adminPw);
+    await rpc('chatDeleteChannel', ch.id, adminPw, tokenOf());
   }catch(err){
     await notice('Could not delete', err.message);
     return;
@@ -1114,7 +1112,7 @@ async function createChannel(){
   if(!name) return;
   const makePublic = me.isAdmin && publicToggle.checked;
   try{
-    const res = await rpc('chatCreateChannel', name, makePublic, adminPw);
+    const res = await rpc('chatCreateChannel', name, makePublic, adminPw, tokenOf());
     newChannelInput.value = '';
     if(res.channel.type === 'private'){
       joinedPrivateIds.add(res.channel.id);
