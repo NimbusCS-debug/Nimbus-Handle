@@ -131,6 +131,24 @@ body{
 .msg-head{display:flex; align-items:baseline; gap:8px;}
 .msg-head .who{font-weight:600; font-size:14px;}
 .msg-head .time{font-size:11px; color:var(--text-faint);}
+.input-area{position:relative;}
+.plus-menu{
+  position:absolute; left:20px; bottom:calc(100% - 10px); min-width:200px; display:none;
+  background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:6px;
+  box-shadow:0 14px 40px rgba(0,0,0,0.5); z-index:50;
+}
+.plus-item{
+  display:flex; align-items:center; gap:10px; width:100%; background:none; border:none; color:var(--text-primary);
+  padding:9px 10px; border-radius:7px; font-family:inherit; font-size:13.5px; cursor:pointer; text-align:left;
+}
+.plus-item:hover{background:var(--surface-2);}
+.plus-item svg{width:16px; height:16px; flex-shrink:0; color:var(--text-secondary);}
+.gif-box{width:480px;}
+.gif-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:6px; max-height:340px; overflow-y:auto;}
+.gif-item{border:none; padding:0; background:var(--surface-2); border-radius:8px; overflow:hidden; cursor:pointer; aspect-ratio:1;}
+.gif-item img{width:100%; height:100%; object-fit:cover; display:block;}
+.gif-item:hover{outline:2px solid var(--accent-indigo);}
+.gif-credit{margin:10px 0 0; text-align:center; font-size:10.5px; color:var(--text-faint);}
 .input-row #plusBtn{background:var(--surface-2); color:var(--text-secondary); font-size:21px; line-height:1; font-family:inherit; font-weight:500;}
 .input-row #plusBtn:hover{background:var(--accent-indigo); color:#0B0C10;}
 .input-row #plusBtn:disabled{opacity:.5; cursor:default;}
@@ -260,8 +278,30 @@ body{
         <input id="messageInput" placeholder="Message #general" autocomplete="off">
         <button id="sendBtn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg></button>
       </div>
+      <div class="plus-menu" id="plusMenu">
+        <button class="plus-item" id="menuUpload" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          Upload a file
+        </button>
+        <button class="plus-item" id="menuGiphy" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          Search GIPHY for GIFs
+        </button>
+      </div>
     </div>
   </main>
+</div>
+
+<div class="modal-overlay" id="gifOverlay" style="display:none;">
+  <div class="modal-box gif-box">
+    <h3>Search GIPHY</h3>
+    <div class="modal-field"><input id="gifQ" placeholder="Search for a GIF" maxlength="50" autocomplete="off"></div>
+    <div class="gif-grid" id="gifGrid"></div>
+    <p class="modal-sub" id="gifMsg" style="margin:10px 0 0;"></p>
+    <button class="auth-link" id="gifMore" type="button" style="display:none;">Load more</button>
+    <div class="modal-actions"><button class="btn-cancel" id="gifClose">Close</button></div>
+    <p class="gif-credit">Powered by GIPHY</p>
+  </div>
 </div>
 
 <div class="modal-overlay" id="authOverlay" style="display:flex;">
@@ -870,7 +910,82 @@ function syncAvatar(){
 // ---------- + button: send a picture or GIF ----------
 const plusBtn = document.getElementById('plusBtn');
 const plusFile = document.getElementById('plusFile');
-plusBtn.addEventListener('click', ()=>{ if(activeChannelId && me.name) plusFile.click(); });
+const plusMenu = document.getElementById('plusMenu');
+function closePlusMenu(){ plusMenu.style.display = 'none'; }
+plusBtn.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  if(!activeChannelId || !me.name) return;
+  plusMenu.style.display = plusMenu.style.display === 'block' ? 'none' : 'block';
+});
+document.addEventListener('click', (e)=>{ if(!plusMenu.contains(e.target)) closePlusMenu(); });
+document.getElementById('menuUpload').addEventListener('click', ()=>{ closePlusMenu(); plusFile.click(); });
+
+// ---- GIPHY search ----
+const gifOverlay = document.getElementById('gifOverlay');
+const gifQ = document.getElementById('gifQ');
+const gifGrid = document.getElementById('gifGrid');
+const gifMsg = document.getElementById('gifMsg');
+const gifMore = document.getElementById('gifMore');
+const gif = { q: '', offset: 0, loading: false, timer: null, token: 0 };
+document.getElementById('menuGiphy').addEventListener('click', ()=>{
+  closePlusMenu();
+  gifOverlay.style.display = 'flex';
+  gifQ.value = '';
+  gifSearch('', true);
+  setTimeout(()=>gifQ.focus(), 20);
+});
+document.getElementById('gifClose').addEventListener('click', ()=>{ gifOverlay.style.display = 'none'; });
+gifOverlay.addEventListener('mousedown', e=>{ if(e.target === gifOverlay) gifOverlay.style.display = 'none'; });
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape'){ closePlusMenu(); gifOverlay.style.display = 'none'; } });
+gifQ.addEventListener('input', ()=>{
+  clearTimeout(gif.timer);
+  gif.timer = setTimeout(()=>gifSearch(gifQ.value.trim(), true), 400);
+});
+gifQ.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ clearTimeout(gif.timer); gifSearch(gifQ.value.trim(), true); } });
+gifMore.addEventListener('click', ()=>gifSearch(gif.q, false));
+async function gifSearch(q, fresh){
+  if(fresh){ gif.token++; gifGrid.innerHTML = ''; gif.offset = 0; gif.q = q; gifMore.style.display = 'none'; }
+  else if(gif.loading) return;
+  const mine = gif.token;
+  gif.loading = true;
+  gifMsg.textContent = gifGrid.children.length ? '' : 'Loading...';
+  try{
+    const r = await rpc('chatGiphy', gif.q, gif.offset, me.name, adminPw, tokenOf());
+    if(mine !== gif.token) return;                         // a newer search replaced this one
+    r.items.forEach(it=>{
+      if(!/^[A-Za-z0-9]+$/.test(it.id) || !/^https:\/\/media\d*\.giphy\.com\//.test(it.preview)) return;
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'gif-item'; b.title = 'Send this GIF';
+      const img = document.createElement('img');
+      img.src = it.preview; img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
+      b.appendChild(img);
+      b.addEventListener('click', ()=>sendGif(it.id));
+      gifGrid.appendChild(b);
+    });
+    gif.offset = r.next;
+    gifMore.style.display = r.more ? '' : 'none';
+    gifMsg.textContent = gifGrid.children.length ? '' : 'No GIFs found.';
+  }catch(err){
+    if(mine === gif.token) gifMsg.textContent = err.message;
+  }finally{
+    if(mine === gif.token) gif.loading = false;
+  }
+}
+async function sendGif(id){
+  gifOverlay.style.display = 'none';
+  if(!activeChannelId) return;
+  const chId = activeChannelId;
+  const typed = messageInput.value.trim();
+  messageInput.value = '';
+  try{
+    await rpc('chatSend', chId, me.name, me.color, (typed ? typed + '\n' : '') + 'https://media.giphy.com/media/' + id + '/giphy.gif', adminPw, tokenOf());
+    msgVer = '';
+    poll();
+  }catch(err){
+    if(/log in again/i.test(err.message)){ logout('Your login expired. Please log in again.'); }
+    else notice("Couldn't send the GIF", err.message);
+  }
+}
 plusFile.addEventListener('change', async ()=>{
   const f = plusFile.files[0];
   plusFile.value = '';
