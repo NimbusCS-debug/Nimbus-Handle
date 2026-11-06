@@ -143,6 +143,8 @@ body{
 }
 .plus-item:hover{background:var(--surface-2);}
 .plus-item svg{width:16px; height:16px; flex-shrink:0; color:var(--text-secondary);}
+.voice-members{padding:0 10px 6px 36px; font-size:11.5px; color:var(--text-secondary); line-height:1.5;}
+.voice-members span{display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .gif-box{width:480px;}
 .gif-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:6px; max-height:340px; overflow-y:auto;}
 .gif-item{border:none; padding:0; background:var(--surface-2); border-radius:8px; overflow:hidden; cursor:pointer; aspect-ratio:1;}
@@ -246,6 +248,7 @@ body{
     <div class="channel-list" id="channelList"></div>
     <div class="add-channel-row">
       <input id="newChannelInput" placeholder="new-channel" maxlength="24">
+      <label class="public-toggle" title="Make this a voice channel"><input type="checkbox" id="voiceToggle"> Voice</label>
       <label class="public-toggle" id="publicToggleWrap" style="display:none;">
         <input type="checkbox" id="publicToggle"> Public
       </label>
@@ -431,7 +434,8 @@ let msgVer = '', chanVer = '';
 let editingMessageId = null;
 let tempCounter = 0;
 let avatarMap = {}, avVer = '', localAv = null;
-let session = null;   // { token, name, guest } for account / guest logins (the admin has no session)
+let session = null;
+let voiceMembers = {}, voiceSig = '';   // { token, name, guest } for account / guest logins (the admin has no session)
 function tokenOf(){ return session ? session.token : ''; }
 
 const channelListEl = document.getElementById('channelList');
@@ -443,6 +447,7 @@ const newChannelInput = document.getElementById('newChannelInput');
 const addChannelBtn = document.getElementById('addChannelBtn');
 const publicToggleWrap = document.getElementById('publicToggleWrap');
 const publicToggle = document.getElementById('publicToggle');
+const voiceToggle = document.getElementById('voiceToggle');
 const joinCodeInput = document.getElementById('joinCodeInput');
 const joinCodeBtn = document.getElementById('joinCodeBtn');
 const userAvatar = document.getElementById('userAvatar');
@@ -1020,13 +1025,29 @@ plusFile.addEventListener('change', async ()=>{
   }
 });
 
+// ---------- voice channels ----------
+// voice.html is hosted on GitHub Pages (Apps Script pages aren't allowed to use the microphone).
+const VOICE_PAGE_URL = 'https://nimbuscs-debug.github.io/Nimbus-Handle/voice.html';
+let voiceApi = null;
+async function openVoice(c){
+  try{
+    if(!voiceApi) voiceApi = await rpc('chatVoiceInfo');
+  }catch(err){ notice('Voice', err.message); return; }
+  if(!voiceApi || !voiceApi.url){ notice('Voice', 'Voice is not available right now.'); return; }
+  if(!tokenOf()){ notice('Voice', 'Please log in first.'); return; }
+  const hash = '#u=' + encodeURIComponent(voiceApi.url) + '&c=' + encodeURIComponent(c.id) +
+               '&n=' + encodeURIComponent(c.name) + '&t=' + encodeURIComponent(tokenOf());
+  const w = window.open(VOICE_PAGE_URL + hash, 'nimbus-voice', 'popup,width=440,height=600');
+  if(!w) notice('Pop-up blocked', 'Allow pop-ups for this site, then click the voice channel again.');
+}
+
 // ---------- polling ----------
 let polling = false, timer = null;
 async function poll(){
   if(polling) return;
   polling = true;
   try{
-    const r = await rpc('chatPoll', activeChannelId, msgVer, [...joinedPrivateIds], chanVer, avVer);
+    const r = await rpc('chatPoll', activeChannelId, msgVer, [...joinedPrivateIds], chanVer, avVer, channels.filter(c=>c.kind==='voice').map(c=>c.id));
     applyPoll(r);
   }catch(err){
     console.error('Poll failed:', err);
@@ -1045,6 +1066,10 @@ function schedule(){
   }, 3000);
 }
 function applyPoll(r){
+  if(r.voice){
+    const sig = JSON.stringify(r.voice);
+    if(sig !== voiceSig){ voiceSig = sig; voiceMembers = r.voice; renderChannelList(); }
+  }
   if(r.avatars){
     avatarMap = r.avatars;
     avVer = r.avVer;
@@ -1058,8 +1083,9 @@ function applyPoll(r){
     renderChannelList();
     const stillThere = channels.some(c=>c.id===activeChannelId);
     if(!stillThere){
-      const general = channels.find(c=>c.name==='general');
-      const pick = general || channels[0];
+      const texts = channels.filter(c=>c.kind!=='voice');
+      const general = texts.find(c=>c.name==='general');
+      const pick = general || texts[0];
       if(pick) selectChannel(pick.id); else { activeChannelId = null; messages = []; renderMessages(); }
       return;
     }
@@ -1077,9 +1103,9 @@ function renderChannelList(){
   channels.forEach(c=>{
     const el = document.createElement('div');
     el.className = 'channel-item' + (c.id===activeChannelId ? ' active':'');
-    const icon = c.type==='private' ? '🔒' : '#';
+    const icon = c.kind==='voice' ? '🔊' : (c.type==='private' ? '🔒' : '#');
     el.innerHTML = `<span class="hash">${icon}</span><span class="ch-name">${escapeAttr(c.name)}</span>`;
-    el.addEventListener('click', ()=>selectChannel(c.id));
+    el.addEventListener('click', ()=>{ if(c.kind==='voice') openVoice(c); else selectChannel(c.id); });
     if(me.isAdmin){
       const delBtn = document.createElement('span');
       delBtn.className = 'channel-delete';
@@ -1089,6 +1115,13 @@ function renderChannelList(){
       el.appendChild(delBtn);
     }
     channelListEl.appendChild(el);
+    const who = c.kind==='voice' ? (voiceMembers[c.id] || []) : [];
+    if(who.length){
+      const box = document.createElement('div');
+      box.className = 'voice-members';
+      who.forEach(n=>{ const s = document.createElement('span'); s.textContent = '🎙 ' + n; box.appendChild(s); });
+      channelListEl.appendChild(box);
+    }
   });
 }
 
@@ -1112,7 +1145,8 @@ async function createChannel(){
   if(!name) return;
   const makePublic = me.isAdmin && publicToggle.checked;
   try{
-    const res = await rpc('chatCreateChannel', name, makePublic, adminPw, tokenOf());
+    const res = await rpc('chatCreateChannel', name, makePublic, adminPw, tokenOf(), voiceToggle.checked ? 'voice' : 'text');
+    voiceToggle.checked = false;
     newChannelInput.value = '';
     if(res.channel.type === 'private'){
       joinedPrivateIds.add(res.channel.id);
@@ -1120,7 +1154,7 @@ async function createChannel(){
     }
     chanVer = '';
     await poll();
-    selectChannel(res.channel.id);
+    if(res.channel.kind !== 'voice') selectChannel(res.channel.id);
     if(res.code){
       await notice('Private channel created', `#${res.channel.name} is private. Share this code so friends can join:\n\n${res.code}`);
     }
@@ -1142,7 +1176,7 @@ async function joinChannel(){
     joinCodeInput.value = '';
     chanVer = '';
     await poll();
-    selectChannel(found.id);
+    if(found.kind === 'voice') openVoice(found); else selectChannel(found.id);
   }catch(err){
     await notice('Could not join', err.message);
   }
