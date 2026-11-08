@@ -156,6 +156,17 @@ body{
 .input-row #plusBtn:disabled{opacity:.5; cursor:default;}
 .msg-img.loading{width:140px; height:90px;}
 .msg-img{display:block; max-width:min(320px,100%); max-height:260px; border-radius:8px; margin:4px 0; background:var(--surface);}
+.inv-card{margin-top:6px;width:300px;max-width:100%;background:#232428;border-radius:10px;overflow:hidden;position:relative;color:#f2f3f5;}
+.inv-banner{height:62px;background:linear-gradient(#b48ac0,#e6d3f0);}
+.inv-icon{position:absolute;left:14px;top:28px;width:62px;height:62px;border-radius:16px;border:3px solid #232428;background:linear-gradient(135deg,#7a00ff,#c8c04a);display:flex;align-items:center;justify-content:center;}
+.inv-body{padding:36px 16px 16px;}
+.inv-name{font-weight:700;font-size:16px;margin-bottom:4px;}
+.inv-stats{display:flex;gap:12px;font-size:13px;color:#dbdee1;}
+.inv-stats .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#80848e;margin-right:5px;}
+.inv-stats .dot.on{background:#3ba55d;}
+.inv-est{font-size:13px;color:#b5bac1;margin:2px 0 14px;}
+.inv-join{display:block;text-align:center;background:#248046;color:#fff;border-radius:6px;padding:9px;font-weight:600;font-size:14px;text-decoration:none;}
+.inv-join:hover{background:#1a6334;}
 .msg-text{font-size:14px; line-height:1.5; color:var(--text-primary); word-wrap:break-word; white-space:pre-wrap;}
 .edited-tag{font-size:10.5px; color:var(--text-faint); font-style:italic; margin-left:4px;}
 .empty-hint{margin:auto; text-align:center; color:var(--text-faint); font-size:13px; padding:40px;}
@@ -1297,6 +1308,38 @@ function fillText(el, s){
     last = mm.index + url.length;
   }
   if(last < s.length) el.appendChild(document.createTextNode(s.slice(last)));
+  const inv = /https?:\/\/(?:www\.)?(?:discord\.gg|discord(?:app)?\.com\/invite)\/([A-Za-z0-9-]{2,32})/gi;
+  const seen = {};
+  let im;
+  while((im = inv.exec(s))){
+    if(seen[im[1]]) continue;
+    seen[im[1]] = 1;
+    el.appendChild(inviteCard(im[1]));
+  }
+}
+const inviteInfo = {};
+function inviteCard(code){
+  const url = 'https://discord.gg/' + code;
+  const card = document.createElement('div');
+  card.className = 'inv-card';
+  card.innerHTML =
+    '<div class="inv-banner"></div>' +
+    '<div class="inv-icon"><svg width="34" height="34" viewBox="0 0 24 24" fill="#111"><path d="M7 19a5 5 0 0 1-.6-9.96A6 6 0 0 1 18 8.5a4.3 4.3 0 0 1 .5 8.6V19H7z"/></svg></div>' +
+    '<div class="inv-body"><div class="inv-name">Nimbus</div>' +
+    '<div class="inv-stats"><span><i class="dot on"></i><b class="inv-on">1</b> Online</span><span><i class="dot"></i><b class="inv-mem">1</b> Member</span></div>' +
+    '<div class="inv-est">Est. Nov 2026</div>' +
+    '<a class="inv-join" target="_blank" rel="noopener noreferrer">Join</a></div>';
+  card.querySelector('.inv-join').href = url;
+  const apply = d=>{
+    if(!d || !d.guild) return;
+    card.querySelector('.inv-name').textContent = d.guild.name || 'Nimbus';
+    if(d.approximate_presence_count != null) card.querySelector('.inv-on').textContent = d.approximate_presence_count;
+    if(d.approximate_member_count != null) card.querySelector('.inv-mem').textContent = d.approximate_member_count;
+  };
+  if(inviteInfo[code]) apply(inviteInfo[code]);
+  else fetch('https://discord.com/api/v9/invites/' + code + '?with_counts=true')
+    .then(r=>r.ok ? r.json() : null).then(d=>{ inviteInfo[code] = d; apply(d); }).catch(()=>{});
+  return card;
 }
 function applyImages_one(img, id){
   const d = imageCache[id];
