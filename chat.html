@@ -1335,6 +1335,19 @@ function inviteCard(code){
     card.querySelector('.inv-name').textContent = d.guild.name || 'Nimbus';
     if(d.approximate_presence_count != null) card.querySelector('.inv-on').textContent = d.approximate_presence_count;
     if(d.approximate_member_count != null) card.querySelector('.inv-mem').textContent = d.approximate_member_count;
+    const g = d.guild, cdn = 'https://cdn.discordapp.com/';
+    const ext = h=>(String(h).indexOf('a_') === 0 ? 'gif' : 'png');
+    if(g.banner){
+      const bn = card.querySelector('.inv-banner');
+      bn.style.background = 'url(' + cdn + 'banners/' + g.id + '/' + g.banner + '.' + ext(g.banner) + '?size=480) center/cover';
+    } else if(g.splash){
+      card.querySelector('.inv-banner').style.background = 'url(' + cdn + 'splashes/' + g.id + '/' + g.splash + '.png?size=480) center/cover';
+    }
+    if(g.icon){
+      const ic = card.querySelector('.inv-icon');
+      ic.style.background = 'url(' + cdn + 'icons/' + g.id + '/' + g.icon + '.' + ext(g.icon) + '?size=128) center/cover';
+      ic.innerHTML = '';
+    }
   };
   if(inviteInfo[code]) apply(inviteInfo[code]);
   else fetch('https://discord.com/api/v9/invites/' + code + '?with_counts=true')
