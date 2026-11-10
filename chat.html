@@ -460,6 +460,14 @@ const channelListEl = document.getElementById('channelList');
 const channelTitleEl = document.getElementById('channelTitle');
 const messagesEl = document.getElementById('messagesList');
 const messageInput = document.getElementById('messageInput');
+let chLocked = false;
+function applyLock(v){
+  chLocked = !!v;
+  messageInput.disabled = chLocked;
+  sendBtn.disabled = chLocked;
+  if(chLocked){ messageInput.value = ''; messageInput.placeholder = 'This channel is locked'; }
+  else { const ch = (typeof channels !== 'undefined' ? channels : []).find(c=>c.id===activeChannelId); messageInput.placeholder = 'Message #' + (ch ? ch.name : ''); }
+}
 const sendBtn = document.getElementById('sendBtn');
 const newChannelInput = document.getElementById('newChannelInput');
 const addChannelBtn = document.getElementById('addChannelBtn');
@@ -1137,6 +1145,7 @@ function applyPoll(r){
       return;
     }
   }
+  if(r.chId === activeChannelId && typeof r.locked === 'boolean' && r.locked !== chLocked) applyLock(r.locked);
   if(r.messages && r.chId === activeChannelId){
     messages = r.messages;
     msgVer = r.msgVer;
@@ -1237,6 +1246,7 @@ function selectChannel(id){
   const ch = channels.find(c=>c.id===id);
   channelTitleEl.textContent = ch ? ch.name : '';
   messageInput.placeholder = 'Message #' + (ch ? ch.name : '');
+  applyLock(false);
   renderChannelList();
   messagesEl.innerHTML = '<div class="empty-hint">Loading…</div>';
   poll();
@@ -1489,6 +1499,7 @@ async function sendMessage(){
   }catch(err){
     messages = messages.filter(m=>m.id!==tempId);
     renderMessages();
+    if(/locked/i.test(err.message)){ applyLock(true); return; }
     if(/banned/i.test(err.message)){ logout('You are banned.'); return; }
     if(/log in again/i.test(err.message)){ logout('Your login expired. Please log in again.'); return; }
     notice("Message didn't send", err.message);
