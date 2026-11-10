@@ -167,6 +167,27 @@ body{
 .inv-est{font-size:13px;color:#b5bac1;margin:2px 0 14px;}
 .inv-join{display:block;text-align:center;background:#248046;color:#fff;border-radius:6px;padding:9px;font-weight:600;font-size:14px;text-decoration:none;}
 .inv-join:hover{background:#1a6334;}
+@keyframes _x{}
+.reply-quote{font-size:12px;color:var(--text-secondary);border-left:3px solid var(--text-faint);padding:1px 8px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:520px;}
+.reactions{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;}
+.react-chip{background:var(--surface-2);border:1px solid transparent;border-radius:10px;padding:1px 7px;font-size:12px;cursor:pointer;color:var(--text-primary);font-family:inherit;}
+.react-chip.mine{border-color:#6d6af2;background:rgba(109,106,242,.18);}
+.react-pick{display:inline-flex;gap:2px;background:var(--surface-2);border-radius:8px;padding:2px 4px;margin-left:6px;}
+.react-pick button{font-size:15px !important;}
+.pinned-tag{font-size:11px;color:var(--accent-amber,#e8a458);margin-left:6px;}
+.pin-strip{display:none;padding:6px 20px;font-size:12px;color:var(--text-secondary);background:var(--surface-2);border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.typing-line{height:16px;font-size:11.5px;color:var(--text-secondary);padding:0 22px;}
+.reply-bar{display:none;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);padding:4px 22px;}
+.reply-bar button{background:none;border:none;color:var(--text-faint);cursor:pointer;font-size:14px;}
+.channel-item.unread .ch-name{color:var(--text-primary);font-weight:700;}
+.channel-item.unread::after{content:'';width:7px;height:7px;border-radius:50%;background:#fff;margin-left:auto;flex-shrink:0;}
+.hdr-tools{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.hdr-tools input{background:var(--surface-2);border:1px solid rgba(255,255,255,.08);border-radius:8px;color:var(--text-primary);padding:5px 9px;font-size:12px;width:150px;font-family:inherit;outline:none;}
+.hdr-tools button{background:var(--surface-2);border:none;border-radius:8px;color:var(--text-primary);padding:5px 9px;cursor:pointer;font-size:13px;}
+.msg-text code{background:rgba(255,255,255,.1);border-radius:4px;padding:1px 5px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;}
+.mem-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;}
+.mem-dot{width:8px;height:8px;border-radius:50%;background:#80848e;}
+.mem-dot.on{background:#3ba55d;}
 .msg-text{font-size:14px; line-height:1.5; color:var(--text-primary); word-wrap:break-word; white-space:pre-wrap;}
 .edited-tag{font-size:10.5px; color:var(--text-faint); font-style:italic; margin-left:4px;}
 .empty-hint{margin:auto; text-align:center; color:var(--text-faint); font-size:13px; padding:40px;}
@@ -284,8 +305,12 @@ body{
     <div class="channel-header">
       <span class="hash">#</span><span id="channelTitle">general</span>
       <span class="sub">Shared live — everyone here sees the same messages</span>
+      <div class="hdr-tools"><input id="searchBox" placeholder="Search messages" autocomplete="off"><button id="membersBtn" title="Members">👥</button></div>
     </div>
+    <div class="pin-strip" id="pinStrip"></div>
     <div class="messages" id="messagesList"></div>
+    <div class="typing-line" id="typingLine"></div>
+    <div class="reply-bar" id="replyBar"><span id="replyText"></span><button id="replyCancel" title="Cancel reply">✕</button></div>
     <div class="input-area">
       <div class="input-row">
         <button id="plusBtn" type="button" title="Add an image or GIF">+</button>
@@ -461,6 +486,52 @@ const channelTitleEl = document.getElementById('channelTitle');
 const messagesEl = document.getElementById('messagesList');
 const messageInput = document.getElementById('messageInput');
 let chLocked = false;
+let searchTerm = '', replyTo = null, onlineNow = [], seenVers = {}, seenInit = false, lastTypingSent = 0;
+const searchBox = document.getElementById('searchBox');
+const pinStrip = document.getElementById('pinStrip');
+const typingLine = document.getElementById('typingLine');
+const replyBar = document.getElementById('replyBar');
+const REACTS = ['\uD83D\uDC4D', '\u2764\uFE0F', '\uD83D\uDE02', '\uD83D\uDE2E', '\uD83D\uDE22', '\uD83C\uDF89'];
+function setReply(m){
+  replyTo = m;
+  replyBar.style.display = m ? 'flex' : 'none';
+  if(m) document.getElementById('replyText').textContent = 'Replying to ' + m.user + ': ' + String(m.text).slice(0, 60);
+  if(m) messageInput.focus();
+}
+document.getElementById('replyCancel').addEventListener('click', ()=>setReply(null));
+searchBox.addEventListener('input', ()=>{ searchTerm = searchBox.value.trim().toLowerCase(); renderMessages(); });
+function showPins(){
+  const pins = messages.filter(m=>m.pinned);
+  if(!pins.length){ pinStrip.style.display = 'none'; return; }
+  const p = pins[pins.length-1];
+  pinStrip.style.display = 'block';
+  pinStrip.textContent = '\uD83D\uDCCC ' + p.user + ': ' + String(p.text).replace(/\s+/g,' ').slice(0, 120) + (pins.length>1 ? '   (+' + (pins.length-1) + ' more pinned, click to see all)' : '');
+  pinStrip.onclick = ()=>notice('Pinned messages', pins.map(x=>x.user + ': ' + String(x.text).slice(0, 200)).join('\n\n'));
+}
+function showTyping(names){
+  const n = (names||[]).filter(x=>x !== me.name);
+  typingLine.textContent = !n.length ? '' : (n.length===1 ? n[0] + ' is typing...' : n.length===2 ? n[0] + ' and ' + n[1] + ' are typing...' : 'Several people are typing...');
+}
+messageInput.addEventListener('input', ()=>{
+  if(!activeChannelId || !session || Date.now() - lastTypingSent < 3000 || !messageInput.value) return;
+  lastTypingSent = Date.now();
+  rpc('chatTyping', activeChannelId, me.name, adminPw, tokenOf()).catch(()=>{});
+});
+document.getElementById('membersBtn').addEventListener('click', async ()=>{
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay'; ov.style.display = 'flex';
+  const box = document.createElement('div'); box.className = 'modal-box';
+  box.innerHTML = '<h3>Members</h3><div id="memList" style="max-height:300px;overflow:auto;margin:8px 0;">Loading...</div><div class="modal-actions"><button class="btn-confirm" id="memClose">Close</button></div>';
+  ov.appendChild(box); document.body.appendChild(ov);
+  box.querySelector('#memClose').addEventListener('click', ()=>ov.remove());
+  let all = [];
+  try{ all = await rpc('chatMembers'); }catch(e){}
+  const online = onlineNow.slice(), set = new Set(online.map(x=>x.toLowerCase()));
+  const off = all.filter(n=>!set.has(n.toLowerCase()));
+  const list = box.querySelector('#memList'); list.textContent = '';
+  const add = (n, on)=>{ const r = document.createElement('div'); r.className = 'mem-row'; r.innerHTML = '<span class="mem-dot' + (on?' on':'') + '"></span>'; const t = document.createElement('span'); t.textContent = n; r.appendChild(t); list.appendChild(r); };
+  online.forEach(n=>add(n, true)); off.forEach(n=>add(n, false));
+});
 function applyLock(v){
   chLocked = !!v;
   messageInput.disabled = chLocked;
@@ -1102,7 +1173,7 @@ async function poll(){
   if(polling) return;
   polling = true;
   try{
-    const r = await rpc('chatPoll', activeChannelId, msgVer, [...joinedPrivateIds], chanVer, avVer, channels.filter(c=>c.kind==='voice').map(c=>c.id));
+    const r = await rpc('chatPoll', activeChannelId, msgVer, [...joinedPrivateIds], chanVer, avVer, channels.filter(c=>c.kind==='voice').map(c=>c.id), tokenOf(), channels.filter(c=>c.kind!=='voice').map(c=>c.id));
     applyPoll(r);
   }catch(err){
     console.error('Poll failed:', err);
@@ -1121,6 +1192,17 @@ function schedule(){
   }, 3000);
 }
 function applyPoll(r){
+  if(r.online){ onlineNow = r.online; }
+  if(r.chId === activeChannelId) showTyping(r.typing);
+  if(r.mvers){
+    let changed = false;
+    Object.keys(r.mvers).forEach(id=>{
+      if(!seenInit || id === activeChannelId || seenVers[id] === undefined){ if(seenVers[id] !== r.mvers[id]){ seenVers[id] = r.mvers[id]; changed = true; } }
+    });
+    seenInit = true;
+    window.__mv = r.mvers;
+    if(changed) renderChannelList();
+  }
   if(r.voice){
     const sig = JSON.stringify(r.voice);
     if(sig !== voiceSig){ voiceSig = sig; voiceMembers = r.voice; renderChannelList(); }
@@ -1150,6 +1232,7 @@ function applyPoll(r){
     messages = r.messages;
     msgVer = r.msgVer;
     if(editingMessageId === null) renderMessages();
+    showPins();
   }
 }
 
@@ -1158,7 +1241,7 @@ function renderChannelList(){
   channelListEl.innerHTML = '';
   channels.forEach(c=>{
     const el = document.createElement('div');
-    el.className = 'channel-item' + (c.id===activeChannelId ? ' active':'');
+    el.className = 'channel-item' + (c.id===activeChannelId ? ' active':'') + ((window.__mv && c.kind!=='voice' && c.id!==activeChannelId && seenVers[c.id] !== undefined && window.__mv[c.id] !== seenVers[c.id]) ? ' unread' : '');
     const icon = c.kind==='voice' ? '🔊' : (c.type==='private' ? '🔒' : '#');
     el.innerHTML = `<span class="hash">${icon}</span><span class="ch-name">${escapeAttr(c.name)}</span>`;
     el.addEventListener('click', ()=>{ if(c.kind==='voice') openVoice(c); else selectChannel(c.id); });
@@ -1247,6 +1330,8 @@ function selectChannel(id){
   channelTitleEl.textContent = ch ? ch.name : '';
   messageInput.placeholder = 'Message #' + (ch ? ch.name : '');
   applyLock(false);
+  setReply(null); searchBox.value = ''; searchTerm = ''; showPins(); showTyping([]);
+  if(window.__mv && window.__mv[id] !== undefined){ seenVers[id] = window.__mv[id]; renderChannelList(); }
   renderChannelList();
   messagesEl.innerHTML = '<div class="empty-hint">Loading…</div>';
   poll();
@@ -1290,6 +1375,22 @@ function applyImages(){
     if(img.dataset.set !== '1'){ img.dataset.set = '1'; img.classList.remove('loading'); img.src = d; }
   });
 }
+function addMd(el, str){
+  const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(~~[^~\n]+~~)|(\*[^*\n]+\*)/g;
+  let last = 0, m;
+  while((m = re.exec(str))){
+    if(m.index > last) el.appendChild(document.createTextNode(str.slice(last, m.index)));
+    const t = m[0];
+    let node;
+    if(m[1]){ node = document.createElement('code'); node.textContent = t.slice(1, -1); }
+    else if(m[2]){ node = document.createElement('b'); node.textContent = t.slice(2, -2); }
+    else if(m[3]){ node = document.createElement('s'); node.textContent = t.slice(2, -2); }
+    else { node = document.createElement('i'); node.textContent = t.slice(1, -1); }
+    el.appendChild(node);
+    last = m.index + t.length;
+  }
+  if(last < str.length) el.appendChild(document.createTextNode(str.slice(last)));
+}
 function fillText(el, s){
   el.textContent = '';
   const re = /\[img:(i[0-9a-f]{6,20})\]|https:\/\/[^\s<>"']+/gi;
@@ -1298,7 +1399,7 @@ function fillText(el, s){
     const token = mm[1], url = mm[0];
     const src = token ? BLANK : imageSrc(url);
     if(!src) continue;
-    if(mm.index > last) el.appendChild(document.createTextNode(s.slice(last, mm.index)));
+    if(mm.index > last) addMd(el, s.slice(last, mm.index));
     const img = document.createElement('img');
     img.className = 'msg-img';
     img.alt = 'image';
@@ -1317,7 +1418,7 @@ function fillText(el, s){
     el.appendChild(img);
     last = mm.index + url.length;
   }
-  if(last < s.length) el.appendChild(document.createTextNode(s.slice(last)));
+  if(last < s.length) addMd(el, s.slice(last));
   const inv = /https?:\/\/(?:www\.)?(?:discord\.gg|discord(?:app)?\.com\/invite)\/([A-Za-z0-9-]{2,32})/gi;
   const seen = {};
   let im;
@@ -1379,7 +1480,9 @@ function renderMessages(){
   const wasAtBottom = messagesEl.scrollTop + messagesEl.clientHeight >= messagesEl.scrollHeight - 40;
   stickBottom = wasAtBottom;
   messagesEl.innerHTML = '';
-  messages.forEach(m=>{
+  const shown = searchTerm ? messages.filter(m=>(m.user + ' ' + m.text).toLowerCase().includes(searchTerm)) : messages;
+  if(!shown.length){ messagesEl.innerHTML = '<div class="empty-hint">No matching messages.</div>'; return; }
+  shown.forEach(m=>{
     const mine = m.user === me.name;
     const row = document.createElement('div');
     row.className = 'msg-row';
@@ -1430,7 +1533,14 @@ function renderMessages(){
       tag.className='edited-tag'; tag.textContent='(edited)';
       head.appendChild(tag);
     }
+    if(m.pinned){ const pt = document.createElement('span'); pt.className = 'pinned-tag'; pt.textContent = '\uD83D\uDCCC pinned'; head.appendChild(pt); }
     body.appendChild(head);
+    if(m.replyTo){
+      const orig = messages.find(x=>x.id===m.replyTo);
+      const q = document.createElement('div'); q.className = 'reply-quote';
+      q.textContent = orig ? ('\u21A9 ' + orig.user + ': ' + String(orig.text).replace(/\s+/g,' ').slice(0, 80)) : '\u21A9 original message';
+      body.appendChild(q);
+    }
 
     const text = document.createElement('div');
     text.className = 'msg-text';
@@ -1438,9 +1548,38 @@ function renderMessages(){
     if(m.pending) text.style.opacity = '0.55';
     body.appendChild(text);
 
-    if((mine || me.isAdmin) && !m.pending){
+    const rx = m.reactions || {};
+    const rxKeys = Object.keys(rx);
+    if(rxKeys.length && !m.pending){
+      const wrap = document.createElement('div'); wrap.className = 'reactions';
+      rxKeys.forEach(e=>{
+        const chip = document.createElement('button');
+        chip.className = 'react-chip' + (rx[e].indexOf(me.name) >= 0 ? ' mine' : '');
+        chip.textContent = e + ' ' + rx[e].length; chip.title = rx[e].join(', ');
+        chip.addEventListener('click', ()=>reactTo(m, e));
+        wrap.appendChild(chip);
+      });
+      body.appendChild(wrap);
+    }
+    if(!m.pending){
       const actions = document.createElement('div');
       actions.className = 'msg-actions';
+      const replyBtn = document.createElement('button'); replyBtn.textContent = 'Reply';
+      replyBtn.addEventListener('click', ()=>setReply(m));
+      const reactBtn = document.createElement('button'); reactBtn.textContent = 'React';
+      reactBtn.addEventListener('click', ()=>{
+        if(actions.querySelector('.react-pick')) { actions.querySelector('.react-pick').remove(); return; }
+        const pk = document.createElement('span'); pk.className = 'react-pick';
+        REACTS.forEach(e=>{ const b = document.createElement('button'); b.textContent = e; b.addEventListener('click', ()=>reactTo(m, e)); pk.appendChild(b); });
+        actions.appendChild(pk);
+      });
+      actions.appendChild(replyBtn); actions.appendChild(reactBtn);
+      if(me.isAdmin){
+        const pinBtn = document.createElement('button'); pinBtn.textContent = m.pinned ? 'Unpin' : 'Pin';
+        pinBtn.addEventListener('click', async ()=>{ try{ await rpc('chatPin', m.id, !m.pinned, adminPw, tokenOf()); msgVer=''; poll(); }catch(err){ notice('Could not pin', err.message); } });
+        actions.appendChild(pinBtn);
+      }
+      if(mine || me.isAdmin){
       const editBtn = document.createElement('button');
       editBtn.textContent = 'Edit';
       editBtn.addEventListener('click', ()=>{ editingMessageId = m.id; renderMessages(); });
@@ -1454,6 +1593,7 @@ function renderMessages(){
         }catch(err){ notice('Could not delete', err.message); }
       });
       actions.appendChild(editBtn); actions.appendChild(delBtn);
+      }
       if(me.isAdmin && !mine && !isReserved(m.user)){
         const banBtn = document.createElement('button');
         banBtn.textContent = 'Ban';
@@ -1473,6 +1613,10 @@ function renderMessages(){
   if(wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+async function reactTo(m, e){
+  try{ await rpc('chatReact', m.id, e, me.name, adminPw, tokenOf()); msgVer = ''; poll(); }
+  catch(err){ if(/locked/i.test(err.message)) applyLock(true); else notice('Could not react', err.message); }
+}
 async function submitEdit(id, newText){
   const text = newText.trim();
   if(!text) return;
@@ -1490,12 +1634,14 @@ async function sendMessage(){
   messageInput.value = '';
   const chId = activeChannelId;
   const tempId = 'tmp' + (++tempCounter);
-  messages.push({ id: tempId, user: me.name, color: me.color, text, ts: Date.now(), pending: true });
+  const rid = replyTo ? replyTo.id : '';
+  setReply(null);
+  messages.push({ id: tempId, user: me.name, color: me.color, text, ts: Date.now(), pending: true, replyTo: rid });
   messagesEl.scrollTop = messagesEl.scrollHeight;
   if(editingMessageId === null) renderMessages();
   messagesEl.scrollTop = messagesEl.scrollHeight;
   try{
-    await rpc('chatSend', chId, me.name, me.color, text, adminPw, tokenOf(), deviceId);
+    await rpc('chatSend', chId, me.name, me.color, text, adminPw, tokenOf(), deviceId, rid);
   }catch(err){
     messages = messages.filter(m=>m.id!==tempId);
     renderMessages();
