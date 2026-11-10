@@ -150,6 +150,30 @@
         body.pref-simple input[type="button"]:hover { transform: none; }
 
         .hero-open { margin: 2px 0 18px; }
+
+        #set-search { width: 100%; box-sizing: border-box; margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-family: inherit; font-size: 13px; outline: none; }
+        #set-search:focus { border-color: var(--accent); }
+        .sp-more { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+        .sp-btns { display: flex; gap: 6px; }
+        .sp-btns .btn { padding: 7px 10px; font-size: 12px; flex: 1; justify-content: center; }
+        #presets { display: flex; gap: 6px; }
+        #presets button { width: 20px; height: 20px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); padding: 0; cursor: pointer; }
+        #accent-pick { width: 34px; height: 26px; border: none; background: none; padding: 0; cursor: pointer; }
+        #sort-sel { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-family: inherit; }
+        #launch { position: fixed; inset: 0; z-index: 3000; display: none; place-items: center; background: rgba(10,10,16,.6); backdrop-filter: blur(4px); font-size: 22px; font-weight: 800; color: #fff; pointer-events: none; }
+        #launch.on { display: grid; animation: lfade .8s ease forwards; }
+        #launch span { animation: lpop .8s ease; }
+        @keyframes lfade { 0% { opacity: 0; } 20% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+        @keyframes lpop { 0% { transform: scale(.85); } 30% { transform: scale(1); } 100% { transform: scale(1.06); } }
+        body.pref-hide-recent #recent-section { display: none !important; }
+        body.pref-compact .game-row input[type="button"], body.pref-compact input[type="button"] { padding-top: 6px; padding-bottom: 6px; font-size: 13px; }
+        body.pref-compact .buttons-container { gap: 4px; }
+        body.pref-compact .letter-section { padding-top: 8px; padding-bottom: 8px; }
+        body.pref-reduce *, body.pref-reduce *::after { transition: none !important; animation: none !important; }
+        body.pref-reduce #bg { display: none !important; }
+        body.sort-za #sections-container { display: flex; flex-direction: column-reverse; }
+        body.sort-za #sections-container .buttons-container { flex-direction: column-reverse; }
+        .game-row input[type="button"]:focus-visible, input[type="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
         .hero-open .btn { padding: 12px 22px; font-size: 14px; }
         #browser-overlay { position: fixed; inset: 0; z-index: 3500; background: #0B0C10; display: none; }
         #browser-overlay iframe { width: 100%; height: 100%; border: 0; display: block; background: #0B0C10; }
@@ -178,6 +202,7 @@
 
     <div id="settings-panel">
         <div class="sp-head"><span>Settings</span><button id="settings-close" type="button" title="Close">&#10005;</button></div>
+        <input type="text" id="set-search" placeholder="Search settings..." autocomplete="off">
         <div class="sp-row">
             <span class="sp-label">Theme color</span>
             <span class="sp-right">
@@ -202,7 +227,18 @@
                 <label class="pref-row"><input type="checkbox" data-pref="hideContinue"><span class="cb"></span><span>Hide Continue playing</span></label>
                 <label class="pref-row"><input type="checkbox" data-pref="hidePop"><span class="cb"></span><span>Hide Popular Games</span></label>
                 <label class="pref-row"><input type="checkbox" data-pref="hideChat"><span class="cb"></span><span>Hide chatroom</span></label>
+                <label class="pref-row"><input type="checkbox" data-pref="hideRecent"><span class="cb"></span><span>Hide Recently played</span></label>
+                <label class="pref-row"><input type="checkbox" data-pref="compact"><span class="cb"></span><span>Compact mode</span></label>
+                <label class="pref-row"><input type="checkbox" data-pref="reduce"><span class="cb"></span><span>Reduced motion (no animations)</span></label>
             </div>
+        </div>
+        <div class="sp-more">
+            <div class="sp-row"><span class="sp-label">Preset themes</span><span class="sp-right" id="presets"></span></div>
+            <div class="sp-row"><span class="sp-label">Accent color</span><span class="sp-right"><input type="color" id="accent-pick" value="#6d6af2"></span></div>
+            <label class="sp-slider">Font size <input type="range" id="font-size" min="80" max="130" step="5" value="100"></label>
+            <div class="sp-row"><span class="sp-label">Games sort</span><span class="sp-right"><select id="sort-sel"><option value="az">A to Z</option><option value="za">Z to A</option></select></span></div>
+            <div class="sp-btns"><button class="btn" id="set-export" type="button">Export</button><button class="btn" id="set-import" type="button">Import</button><button class="btn" id="set-reset" type="button">Reset all</button></div>
+            <input type="file" id="set-file" accept="application/json" style="display:none">
         </div>
     </div>
 
@@ -224,6 +260,7 @@
             <div class="hero-open"><button class="btn primary" id="open-browser" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>Open browser</button></div>
             <div class="hero-btns">
                 <button class="btn primary" id="lolbutton" onclick="loadFallback()">Reload games</button>
+                <button class="btn" id="random-game" type="button">Random game</button>
             </div>
             <p id="games-status" style="margin:14px 0 0;font-size:13px;color:var(--muted);"></p>
             
@@ -232,6 +269,10 @@
         <div class="letter-section" id="fav-section">
             <div class="letter-header"><span>&#9733;</span> Favorites</div>
             <div class="buttons-container" id="fav-list"></div>
+        </div>
+        <div class="letter-section" id="recent-section" style="display:none">
+            <div class="letter-header"><span>&#128339;</span> Recently played</div>
+            <div class="buttons-container" id="recent-list"></div>
         </div>
         <div class="letter-section" id="pop-section">
             <div class="letter-header"><span>&#128293;</span> Popular Games</div>
@@ -419,6 +460,7 @@
             function isFav(k) { return favs.indexOf(k) !== -1; }
 
             var origs = {}; // file name -> its button in the main list
+            window.nimbusOrigs = origs;
 
             function norm(t) { return t.toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
@@ -628,7 +670,7 @@
                 noRes.style.display = (q && sections.length && !total && !shownF && !shownP) ? '' : 'none';
             }
 
-            function refresh() { cleanNames(); renderFavs(); renderPopular(); filter(); }
+            function refresh() { cleanNames(); renderFavs(); renderPopular(); filter(); if (window.nimbusAfterRefresh) window.nimbusAfterRefresh(); }
 
             var timer;
             input.addEventListener('input', function () {
@@ -902,6 +944,11 @@
             });
             document.addEventListener('keydown', function (e) { if (e.key === 'Escape') openPanel(false); });
 
+            window.nimbusSetTheme = function (t) {
+                theme = t ? { h: t.h, s: t.s, v: t.v } : null;
+                cur = t ? { h: t.h, s: t.s, v: t.v } : { h: DEFAULT.h, s: DEFAULT.s, v: DEFAULT.v };
+                applyTheme(theme); save();
+            };
             // ----- restore saved theme -----
             try {
                 var saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -918,7 +965,8 @@
         (function () {
             var KEY = 'nimbus-prefs';
             var CLASSES = { simple: 'pref-simple', hideEmpty: 'pref-hide-empty', hideFav: 'pref-hide-fav',
-                            hideContinue: 'pref-hide-continue', hidePop: 'pref-hide-pop', hideChat: 'pref-hide-chat' };
+                            hideContinue: 'pref-hide-continue', hidePop: 'pref-hide-pop', hideChat: 'pref-hide-chat',
+                            hideRecent: 'pref-hide-recent', compact: 'pref-compact', reduce: 'pref-reduce' };
             var state = {};
             try { state = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) {}
             var toggle = document.getElementById('pref-toggle');
@@ -932,7 +980,7 @@
 
             function apply() {
                 Object.keys(CLASSES).forEach(function (k) { document.body.classList.toggle(CLASSES[k], !!state[k]); });
-                window.NIMBUS_SIMPLE = !!state.simple;
+                window.NIMBUS_SIMPLE = !!(state.simple || state.reduce);
             }
             Array.prototype.forEach.call(list.querySelectorAll('input[data-pref]'), function (cb) {
                 cb.checked = !!state[cb.dataset.pref];
@@ -953,6 +1001,135 @@
             new MutationObserver(tagContinue).observe(document.querySelector('.main-content'), { childList: true, subtree: true });
             tagContinue();
             apply();
+        })();
+    </script>
+    <script>
+        /* ---------- games hub extras + more settings ---------- */
+        (function () {
+            function get(k, d) { try { var v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } }
+            function put(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+            var reduced = function () { return document.body.classList.contains('pref-reduce') || document.body.classList.contains('pref-simple'); };
+            var recentSec = document.getElementById('recent-section'), recentList = document.getElementById('recent-list');
+            var input = document.getElementById('searchInput');
+
+            // ----- recently played + launch animation -----
+            var launch = document.createElement('div'); launch.id = 'launch'; document.body.appendChild(launch);
+            var recent = get('nimbus-recent', []);
+            if (!Array.isArray(recent)) recent = [];
+            document.addEventListener('click', function (e) {
+                var b = e.target && e.target.closest && e.target.closest('input[type="button"][data-orig]');
+                if (!b || !b.closest('#sections-container')) return;
+                var k = b.dataset.orig;
+                recent = recent.filter(function (x) { return x !== k; });
+                recent.unshift(k); recent = recent.slice(0, 8);
+                put('nimbus-recent', recent);
+                var plays = get('nimbus-plays', {}); plays[k] = (plays[k] || 0) + 1; put('nimbus-plays', plays);
+                if (!reduced()) {
+                    launch.innerHTML = ''; var sp = document.createElement('span'); sp.textContent = 'Launching ' + b.value + '...'; launch.appendChild(sp);
+                    launch.classList.remove('on'); void launch.offsetWidth; launch.classList.add('on');
+                    setTimeout(function () { launch.classList.remove('on'); }, 850);
+                }
+                renderRecent();
+            }, true);
+            function renderRecent() {
+                var origs = window.nimbusOrigs || {};
+                recentList.innerHTML = '';
+                recent.forEach(function (k) {
+                    var o = origs[k]; if (!o) return;
+                    var row = document.createElement('div'); row.className = 'game-row';
+                    var b = document.createElement('input'); b.type = 'button'; b.value = o.value; b.dataset.search = o.dataset.search || '';
+                    b.addEventListener('click', function () { o.click(); });
+                    row.appendChild(b); recentList.appendChild(row);
+                });
+                recentSec.style.display = (recentList.children.length && !input.value.trim()) ? '' : 'none';
+            }
+            window.nimbusAfterRefresh = renderRecent;
+            input.addEventListener('input', renderRecent);
+
+            // ----- random game -----
+            document.getElementById('random-game').addEventListener('click', function () {
+                var keys = Object.keys(window.nimbusOrigs || {});
+                if (!keys.length) return;
+                window.nimbusOrigs[keys[Math.floor(Math.random() * keys.length)]].click();
+            });
+
+            // ----- sorting -----
+            var sortSel = document.getElementById('sort-sel');
+            function applySort(v) { document.body.classList.toggle('sort-za', v === 'za'); }
+            sortSel.value = get('nimbus-sort', 'az'); applySort(sortSel.value);
+            sortSel.addEventListener('change', function () { put('nimbus-sort', sortSel.value); applySort(sortSel.value); });
+
+            // ----- keyboard: / focuses search, arrows move through games -----
+            document.addEventListener('keydown', function (e) {
+                var t = e.target, typing = t && (t.tagName === 'INPUT' && t.type !== 'button' || t.tagName === 'SELECT' || t.isContentEditable);
+                if (e.key === '/' && !typing) { e.preventDefault(); input.focus(); return; }
+                if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && (!typing || t === input)) {
+                    var list = Array.prototype.filter.call(document.querySelectorAll('.main-content input[type="button"]'), function (b) { return b.offsetParent !== null && b.id !== 'lolbutton'; });
+                    if (!list.length) return;
+                    var i = list.indexOf(document.activeElement);
+                    if (t === input && e.key === 'ArrowUp') return;
+                    e.preventDefault();
+                    i = e.key === 'ArrowDown' ? Math.min(list.length - 1, i + 1) : Math.max(0, i - 1);
+                    list[i].focus(); list[i].scrollIntoView({ block: 'center' });
+                }
+            });
+
+            // ----- settings: presets, accent, font size -----
+            var PRESETS = [{ n: 'Indigo', h: 241, s: .56, v: .95 }, { n: 'Ocean', h: 200, s: .7, v: .9 }, { n: 'Forest', h: 145, s: .6, v: .75 }, { n: 'Sunset', h: 20, s: .75, v: .95 }, { n: 'Rose', h: 335, s: .6, v: .95 }, { n: 'Mono', h: 0, s: 0, v: .8 }];
+            var pr = document.getElementById('presets');
+            function hsv2hex(h, s, v) { var f = function (n) { var k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); }; return '#' + [f(5), f(3), f(1)].map(function (c) { return ('0' + Math.round(c * 255).toString(16)).slice(-2); }).join(''); }
+            PRESETS.forEach(function (p) {
+                var b = document.createElement('button'); b.type = 'button'; b.title = p.n; b.style.background = hsv2hex(p.h, p.s, p.v);
+                b.addEventListener('click', function () { if (window.nimbusSetTheme) window.nimbusSetTheme(p); });
+                pr.appendChild(b);
+            });
+            document.getElementById('accent-pick').addEventListener('input', function (e) {
+                var c = e.target.value, r = parseInt(c.substr(1, 2), 16) / 255, g = parseInt(c.substr(3, 2), 16) / 255, b = parseInt(c.substr(5, 2), 16) / 255;
+                var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, h = 0;
+                if (d) { if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
+                if (window.nimbusSetTheme) window.nimbusSetTheme({ h: h, s: mx ? d / mx : 0, v: Math.max(.35, mx) });
+            });
+            var fs = document.getElementById('font-size'), mc = document.querySelector('.main-content');
+            function applyFont(v) { mc.style.zoom = v === 100 ? '' : (v / 100); }
+            fs.value = get('nimbus-font', 100); applyFont(+fs.value);
+            fs.addEventListener('input', function () { put('nimbus-font', +fs.value); applyFont(+fs.value); });
+
+            // ----- settings search -----
+            var ss = document.getElementById('set-search'), panel = document.getElementById('settings-panel');
+            ss.addEventListener('input', function () {
+                var q = ss.value.trim().toLowerCase();
+                var rows = panel.querySelectorAll('.sp-row, .pref-row, .sp-slider, .sp-btns');
+                Array.prototype.forEach.call(rows, function (r) { r.style.display = (!q || r.textContent.toLowerCase().indexOf(q) !== -1 || r.classList.contains('sp-btns') && 'export import reset'.indexOf(q) !== -1) ? '' : 'none'; });
+                if (q) document.getElementById('pref-list').style.display = 'flex';
+            });
+
+            // ----- export / import / reset -----
+            function allKeys() { var o = {}; for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k.indexOf('nimbus') === 0) o[k] = localStorage.getItem(k); } return o; }
+            document.getElementById('set-export').addEventListener('click', function () {
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([JSON.stringify(allKeys(), null, 2)], { type: 'application/json' }));
+                a.download = 'nimbus-settings.json'; a.click();
+            });
+            var fileIn = document.getElementById('set-file');
+            document.getElementById('set-import').addEventListener('click', function () { fileIn.click(); });
+            fileIn.addEventListener('change', function () {
+                var f = fileIn.files[0]; if (!f) return;
+                var r = new FileReader();
+                r.onload = function () {
+                    try {
+                        var o = JSON.parse(r.result);
+                        Object.keys(o).forEach(function (k) { if (k.indexOf('nimbus') === 0 && k !== 'nimbus-gate' && typeof o[k] === 'string') localStorage.setItem(k, o[k]); });
+                        location.reload();
+                    } catch (e) { alert('That is not a Nimbus settings file.'); }
+                };
+                r.readAsText(f);
+            });
+            document.getElementById('set-reset').addEventListener('click', function () {
+                if (!confirm('Reset all Nimbus settings on this device? Favorites are kept.')) return;
+                ['nimbus-prefs', 'nimbus-theme', 'nimbus-font', 'nimbus-sort', 'nimbus-recent', 'nimbus-plays'].forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
+                location.reload();
+            });
+            renderRecent();
         })();
     </script>
     <script>
