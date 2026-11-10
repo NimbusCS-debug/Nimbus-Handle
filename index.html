@@ -165,7 +165,6 @@
         #launch span { animation: lpop .8s ease; }
         @keyframes lfade { 0% { opacity: 0; } 20% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
         @keyframes lpop { 0% { transform: scale(.85); } 30% { transform: scale(1); } 100% { transform: scale(1.06); } }
-        body.pref-hide-recent #recent-section { display: none !important; }
         body.pref-compact .game-row input[type="button"], body.pref-compact input[type="button"] { padding-top: 6px; padding-bottom: 6px; font-size: 13px; }
         body.pref-compact .buttons-container { gap: 4px; }
         body.pref-compact .letter-section { padding-top: 8px; padding-bottom: 8px; }
@@ -246,7 +245,6 @@
                 <label class="pref-row"><input type="checkbox" data-pref="hideContinue"><span class="cb"></span><span>Hide Continue playing</span></label>
                 <label class="pref-row"><input type="checkbox" data-pref="hidePop"><span class="cb"></span><span>Hide Popular Games</span></label>
                 <label class="pref-row"><input type="checkbox" data-pref="hideChat"><span class="cb"></span><span>Hide chatroom</span></label>
-                <label class="pref-row"><input type="checkbox" data-pref="hideRecent"><span class="cb"></span><span>Hide Recently played</span></label>
                 <label class="pref-row"><input type="checkbox" data-pref="compact"><span class="cb"></span><span>Compact mode</span></label>
                 <label class="pref-row"><input type="checkbox" data-pref="reduce"><span class="cb"></span><span>Reduced motion (no animations)</span></label>
             </div>
@@ -272,7 +270,7 @@
     <div class="nm-modal" id="new-modal" role="dialog" aria-label="What's new"><div class="box"><h2>What's new in Nimbus</h2><ul>
         <li>Chat: replies, reactions, pins, search, typing indicators, markdown, member list</li>
         <li>Chat moderation: reports, mutes, bans, audit log, rate limiting</li>
-        <li>Recently played, Random game, sorting, settings search, presets</li>
+        <li>Continue playing, Random game, sorting, settings search, presets</li>
         <li>Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to jump anywhere</li></ul>
         <div style="text-align:right;"><button class="btn primary" data-close type="button">Got it</button></div></div></div>
 
@@ -305,7 +303,7 @@
             <div class="buttons-container" id="fav-list"></div>
         </div>
         <div class="letter-section" id="recent-section" style="display:none">
-            <div class="letter-header"><span>&#128339;</span> Recently played</div>
+            <div class="letter-header"><span>&#128339;</span> Continue playing</div>
             <div class="buttons-container" id="recent-list"></div>
         </div>
         <div class="letter-section" id="pop-section">
@@ -1000,7 +998,7 @@
             var KEY = 'nimbus-prefs';
             var CLASSES = { simple: 'pref-simple', hideEmpty: 'pref-hide-empty', hideFav: 'pref-hide-fav',
                             hideContinue: 'pref-hide-continue', hidePop: 'pref-hide-pop', hideChat: 'pref-hide-chat',
-                            hideRecent: 'pref-hide-recent', compact: 'pref-compact', reduce: 'pref-reduce' };
+                            compact: 'pref-compact', reduce: 'pref-reduce' };
             var state = {};
             try { state = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) {}
             var toggle = document.getElementById('pref-toggle');
