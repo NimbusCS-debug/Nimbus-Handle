@@ -174,6 +174,25 @@
         body.sort-za #sections-container { display: flex; flex-direction: column-reverse; }
         body.sort-za #sections-container .buttons-container { flex-direction: column-reverse; }
         .game-row input[type="button"]:focus-visible, input[type="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        #pal { position: fixed; inset: 0; z-index: 3500; display: none; align-items: flex-start; justify-content: center; padding-top: 14vh; background: rgba(8,8,14,.6); backdrop-filter: blur(4px); }
+        #pal.on { display: flex; }
+        #pal .box { width: min(560px, 92vw); background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 24px 70px rgba(0,0,0,.6); overflow: hidden; }
+        #pal input[type="text"] { width: 100%; box-sizing: border-box; padding: 16px 18px; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 16px; font-family: inherit; outline: none; }
+        #pal .list { max-height: 330px; overflow-y: auto; padding: 6px; }
+        #pal .it { display: flex; justify-content: space-between; gap: 10px; padding: 9px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+        #pal .it.sel { background: var(--accent); color: #fff; }
+        #pal .it small { opacity: .6; }
+        #pal .empty { padding: 18px; color: var(--muted); text-align: center; font-size: 13px; }
+        .nm-modal { position: fixed; inset: 0; z-index: 3600; display: none; place-items: center; background: rgba(8,8,14,.65); }
+        .nm-modal.on { display: grid; }
+        .nm-modal .box { width: min(460px, 92vw); max-height: 80vh; overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; }
+        .nm-modal h2 { margin: 0 0 10px; font-size: 18px; }
+        .nm-modal ul { margin: 0 0 14px; padding-left: 18px; font-size: 13.5px; line-height: 1.6; }
+        .nm-modal kbd { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font-size: 12px; }
+        .nm-modal .krow { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13.5px; border-bottom: 1px solid var(--border); }
+        @keyframes nmroll { to { transform: rotate(360deg); } }
+        body.roll { animation: nmroll 1s ease; }
         .hero-open .btn { padding: 12px 22px; font-size: 14px; }
         #browser-overlay { position: fixed; inset: 0; z-index: 3500; background: #0B0C10; display: none; }
         #browser-overlay iframe { width: 100%; height: 100%; border: 0; display: block; background: #0B0C10; }
@@ -241,6 +260,21 @@
             <input type="file" id="set-file" accept="application/json" style="display:none">
         </div>
     </div>
+
+    <div id="pal" role="dialog" aria-label="Quick switcher"><div class="box"><input type="text" id="pal-in" placeholder="Jump to a game or run a command..." autocomplete="off" aria-label="Search games and commands"><div class="list" id="pal-list" role="listbox"></div></div></div>
+    <div class="nm-modal" id="keys-modal" role="dialog" aria-label="Keyboard shortcuts"><div class="box"><h2>Keyboard shortcuts</h2>
+        <div class="krow"><span>Quick switcher / command palette</span><span><kbd>Ctrl</kbd> + <kbd>K</kbd></span></div>
+        <div class="krow"><span>Focus game search</span><kbd>/</kbd></div>
+        <div class="krow"><span>Move through games</span><span><kbd>&uarr;</kbd> <kbd>&darr;</kbd></span></div>
+        <div class="krow"><span>This list</span><kbd>?</kbd></div>
+        <div class="krow"><span>Close any window</span><kbd>Esc</kbd></div>
+        <div style="text-align:right;margin-top:14px;"><button class="btn primary" data-close type="button">Close</button></div></div></div>
+    <div class="nm-modal" id="new-modal" role="dialog" aria-label="What's new"><div class="box"><h2>What's new in Nimbus</h2><ul>
+        <li>Chat: replies, reactions, pins, search, typing indicators, markdown, member list</li>
+        <li>Chat moderation: reports, mutes, bans, audit log, rate limiting</li>
+        <li>Recently played, Random game, sorting, settings search, presets</li>
+        <li>Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to jump anywhere</li></ul>
+        <div style="text-align:right;"><button class="btn primary" data-close type="button">Got it</button></div></div></div>
 
     <div id="browser-overlay">
         <div id="browser-status">Loading browser...</div>
@@ -1130,6 +1164,86 @@
                 location.reload();
             });
             renderRecent();
+        })();
+    </script>
+    <script>
+        /* ---------- Nimbus-wide: quick switcher, shortcuts, what's new ---------- */
+        (function () {
+            var VERSION = '2026-11-10';
+            var pal = document.getElementById('pal'), pin = document.getElementById('pal-in'), plist = document.getElementById('pal-list');
+            var keysM = document.getElementById('keys-modal'), newM = document.getElementById('new-modal');
+            var items = [], sel = 0;
+            function click(sel) { var e = document.querySelector(sel); if (e) e.click(); }
+            function pref(k) { var e = document.querySelector('#pref-list input[data-pref="' + k + '"]'); if (e) e.click(); }
+            function commands() {
+                return [
+                    ['Open browser', function () { click('#open-browser'); }],
+                    ['Open chat', function () { click('.sidebar [data-chat]'); }],
+                    ['Random game', function () { click('#random-game'); }],
+                    ['Open settings', function () { click('#settings-btn'); }],
+                    ['Go to Favorites', function () { var f = document.getElementById('fav-section'); if (f) f.scrollIntoView({ behavior: 'smooth' }); }],
+                    ['Toggle compact mode', function () { pref('compact'); }],
+                    ['Toggle reduced motion', function () { pref('reduce'); }],
+                    ['Toggle Simple UI', function () { pref('simple'); }],
+                    ['Sort games Z to A', function () { var s = document.getElementById('sort-sel'); s.value = 'za'; s.dispatchEvent(new Event('change')); }],
+                    ['Sort games A to Z', function () { var s = document.getElementById('sort-sel'); s.value = 'az'; s.dispatchEvent(new Event('change')); }],
+                    ['Export settings', function () { click('#set-export'); }],
+                    ['Keyboard shortcuts', function () { keysM.classList.add('on'); }],
+                    ["What's new", function () { newM.classList.add('on'); }],
+                    ['Do a barrel roll', function () { document.body.classList.add('roll'); setTimeout(function () { document.body.classList.remove('roll'); }, 1100); }]
+                ].map(function (c) { return { label: c[0], tag: 'command', run: c[1] }; });
+            }
+            function gamesList() {
+                var o = window.nimbusOrigs || {};
+                return Object.keys(o).map(function (k) { return { label: o[k].value, tag: 'game', run: function () { o[k].click(); } }; });
+            }
+            function norm(t) { return String(t).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+            function render() {
+                var q = norm(pin.value);
+                var all = commands().concat(gamesList());
+                items = all.filter(function (i) { return !q || norm(i.label).indexOf(q) !== -1; }).slice(0, 40);
+                if (sel >= items.length) sel = 0;
+                plist.innerHTML = '';
+                if (!items.length) { plist.innerHTML = '<div class="empty">Nothing found</div>'; return; }
+                items.forEach(function (it, i) {
+                    var d = document.createElement('div'); d.className = 'it' + (i === sel ? ' sel' : ''); d.setAttribute('role', 'option');
+                    var a = document.createElement('span'); a.textContent = it.label; var b = document.createElement('small'); b.textContent = it.tag;
+                    d.appendChild(a); d.appendChild(b);
+                    d.addEventListener('mousemove', function () { if (sel !== i) { sel = i; mark(); } });
+                    d.addEventListener('click', function () { run(i); });
+                    plist.appendChild(d);
+                });
+            }
+            function mark() { Array.prototype.forEach.call(plist.children, function (c, i) { c.classList.toggle('sel', i === sel); }); var c = plist.children[sel]; if (c && c.scrollIntoView) c.scrollIntoView({ block: 'nearest' }); }
+            function open(v) { pal.classList.toggle('on', v); if (v) { pin.value = ''; sel = 0; render(); pin.focus(); } }
+            function run(i) { var it = items[i]; if (!it) return; open(false); setTimeout(it.run, 30); }
+            pin.addEventListener('input', function () { sel = 0; render(); });
+            pin.addEventListener('keydown', function (e) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(items.length - 1, sel + 1); mark(); }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); mark(); }
+                else if (e.key === 'Enter') { e.preventDefault(); run(sel); }
+            });
+            pal.addEventListener('mousedown', function (e) { if (e.target === pal) open(false); });
+            [keysM, newM].forEach(function (m) {
+                m.addEventListener('mousedown', function (e) { if (e.target === m) m.classList.remove('on'); });
+                m.querySelector('[data-close]').addEventListener('click', function () { m.classList.remove('on'); });
+            });
+            document.addEventListener('keydown', function (e) {
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); open(!pal.classList.contains('on')); return; }
+                if (e.key === 'Escape') { pal.classList.remove('on'); keysM.classList.remove('on'); newM.classList.remove('on'); return; }
+                var t = e.target, typing = t && ((t.tagName === 'INPUT' && t.type !== 'button') || t.tagName === 'SELECT' || t.isContentEditable);
+                if (e.key === '?' && !typing) keysM.classList.add('on');
+            });
+            // easter egg: the Konami code
+            var seq = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'], pos = 0;
+            document.addEventListener('keydown', function (e) {
+                pos = (e.key === seq[pos]) ? pos + 1 : (e.key === seq[0] ? 1 : 0);
+                if (pos === seq.length) { pos = 0; document.body.classList.add('roll'); setTimeout(function () { document.body.classList.remove('roll'); }, 1100); }
+            });
+            // what's new: shown once per version
+            try { if (localStorage.getItem('nimbus-seen') !== VERSION) { localStorage.setItem('nimbus-seen', VERSION); setTimeout(function () { if (!document.getElementById('settings-panel').offsetParent) newM.classList.add('on'); }, 1500); } } catch (e) {}
+            // accessibility: label icon-only buttons
+            [['settings-btn', 'Settings'], ['settings-close', 'Close settings'], ['chat-close', 'Close chat']].forEach(function (p) { var e = document.getElementById(p[0]); if (e && !e.getAttribute('aria-label')) e.setAttribute('aria-label', p[1]); });
         })();
     </script>
     <script>
