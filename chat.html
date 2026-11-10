@@ -296,7 +296,7 @@ body{
         <div class="u-name" id="userNameDisplay"></div>
         <div class="u-sub" id="userSub">Online</div>
       </div>
-      <button id="bansBtn" title="Manage bans" style="display:none;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg></button>
+      <button id="bansBtn" title="Admin dashboard" style="display:none;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg></button>
       <button id="editNameBtn" title="Log out"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg></button>
     </div>
   </aside>
@@ -649,28 +649,41 @@ const bansBtn = document.getElementById('bansBtn');
 bansBtn.addEventListener('click', async ()=>{
   const ov = document.createElement('div');
   ov.className = 'modal-overlay'; ov.style.display = 'flex';
-  const box = document.createElement('div'); box.className = 'modal-box';
-  box.innerHTML = '<h3>Manage bans</h3><div id="banList" style="max-height:260px;overflow:auto;margin:8px 0;"></div><div class="modal-actions"><button class="btn-confirm" id="banClose">Close</button></div>';
+  const box = document.createElement('div'); box.className = 'modal-box'; box.style.maxWidth = '520px'; box.style.width = '92%';
+  box.innerHTML = '<h3>Admin dashboard</h3><div style="display:flex;gap:6px;margin:6px 0;"><button class="btn-cancel" data-t="rep">Reports</button><button class="btn-cancel" data-t="ban">Bans & mutes</button><button class="btn-cancel" data-t="log">Audit log</button></div><div id="dashBody" style="max-height:320px;overflow:auto;margin:8px 0;font-size:13px;"></div><div class="modal-actions"><button class="btn-confirm" id="banClose">Close</button></div>';
   ov.appendChild(box); document.body.appendChild(ov);
   box.querySelector('#banClose').addEventListener('click', ()=>ov.remove());
-  const list = box.querySelector('#banList');
-  async function load(){
-    list.textContent = 'Loading...';
+  const body = box.querySelector('#dashBody');
+  const rowEl = (text, btns)=>{
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);';
+    const t = document.createElement('span'); t.style.cssText = 'flex:1;word-break:break-word;'; t.textContent = text; row.appendChild(t);
+    (btns||[]).forEach(([label, fn])=>{ const u = document.createElement('button'); u.className = 'btn-cancel'; u.textContent = label; u.addEventListener('click', async ()=>{ u.disabled = true; try{ await fn(); }catch(e){ notice('Error', e.message); } show(cur); }); row.appendChild(u); });
+    return row;
+  };
+  let cur = 'rep';
+  async function show(tab){
+    cur = tab; body.textContent = 'Loading...';
     try{
-      const bans = await rpc('chatListBans', adminPw, tokenOf());
-      list.textContent = '';
-      if(!bans.length){ list.textContent = 'Nobody is banned.'; return; }
-      bans.forEach(b=>{
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;font-size:13px;';
-        const t = document.createElement('span'); t.textContent = b.label;
-        const u = document.createElement('button'); u.className = 'btn-cancel'; u.textContent = 'Unban';
-        u.addEventListener('click', async ()=>{ u.disabled = true; try{ await rpc('chatUnban', b.type, b.key, adminPw, tokenOf()); }catch(e){} load(); });
-        row.appendChild(t); row.appendChild(u); list.appendChild(row);
-      });
-    }catch(err){ list.textContent = err.message; }
+      if(tab === 'rep'){
+        const list = await rpc('chatListReports', adminPw, tokenOf()); body.textContent = '';
+        if(!list.length) body.textContent = 'No open reports.';
+        list.forEach(r=>body.appendChild(rowEl(r.author + ': "' + String(r.text).slice(0, 120) + '" (reported by ' + r.reporter + (r.reason ? ': ' + r.reason : '') + ')', [
+          ['Delete msg', async ()=>{ await rpc('chatDelete', r.msgId, me.name, adminPw, tokenOf()); await rpc('chatResolveReport', r.id, adminPw, tokenOf()); }],
+          ['Dismiss', ()=>rpc('chatResolveReport', r.id, adminPw, tokenOf())]])));
+      } else if(tab === 'ban'){
+        const bans = await rpc('chatListBans', adminPw, tokenOf()); body.textContent = '';
+        if(!bans.length) body.textContent = 'Nobody is banned or muted.';
+        bans.forEach(b=>body.appendChild(rowEl(b.label, [['Remove', ()=>rpc('chatUnban', b.type, b.key, adminPw, tokenOf())]])));
+      } else {
+        const log = await rpc('chatAuditLog', adminPw, tokenOf()); body.textContent = '';
+        if(!log.length) body.textContent = 'Nothing logged yet.';
+        log.forEach(x=>body.appendChild(rowEl(new Date(x.ts).toLocaleString() + '  ' + x.action + (x.target ? ' - ' + x.target : '') + (x.detail ? ' (' + x.detail + ')' : ''), [])));
+      }
+    }catch(err){ body.textContent = err.message; }
   }
-  load();
+  box.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click', ()=>show(b.dataset.t)));
+  show('rep');
 });
 publicToggleWrap.style.display = 'none';
 renderUserPanel();
@@ -1594,7 +1607,25 @@ function renderMessages(){
       });
       actions.appendChild(editBtn); actions.appendChild(delBtn);
       }
+      if(!mine && !m.pending){
+        const repBtn = document.createElement('button'); repBtn.textContent = 'Report';
+        repBtn.addEventListener('click', async ()=>{
+          const why = window.prompt('Why are you reporting this message? (optional)');
+          if(why === null) return;
+          try{ await rpc('chatReport', m.id, why, me.name, adminPw, tokenOf()); notice('Reported', 'Thanks, an admin will take a look.'); }
+          catch(err){ notice('Could not report', err.message); }
+        });
+        actions.appendChild(repBtn);
+      }
       if(me.isAdmin && !mine && !isReserved(m.user)){
+        const muteBtn = document.createElement('button'); muteBtn.textContent = 'Mute';
+        muteBtn.addEventListener('click', async ()=>{
+          const mins = window.prompt('Mute ' + m.user + ' for how many minutes?', '10');
+          if(!mins) return;
+          try{ await rpc('chatMute', m.id, Number(mins), adminPw, tokenOf()); notice('Muted', m.user + ' is muted for ' + Number(mins) + ' minute(s).'); }
+          catch(err){ notice('Could not mute', err.message); }
+        });
+        actions.appendChild(muteBtn);
         const banBtn = document.createElement('button');
         banBtn.textContent = 'Ban';
         banBtn.addEventListener('click', async ()=>{
@@ -1648,6 +1679,7 @@ async function sendMessage(){
     if(/locked/i.test(err.message)){ applyLock(true); return; }
     if(/banned/i.test(err.message)){ logout('You are banned.'); return; }
     if(/log in again/i.test(err.message)){ logout('Your login expired. Please log in again.'); return; }
+    if(!messageInput.value) messageInput.value = text;
     notice("Message didn't send", err.message);
     return;
   }
