@@ -188,6 +188,26 @@ body{
 .mem-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;}
 .mem-dot{width:8px;height:8px;border-radius:50%;background:#80848e;}
 .mem-dot.on{background:#3ba55d;}
+
+.prof-card{width:340px;max-width:94vw;background:var(--surface);border-radius:14px;overflow:hidden;color:var(--text-primary);position:relative;box-shadow:0 20px 60px rgba(0,0,0,.55);}
+.prof-banner{height:76px;}
+.prof-av{position:absolute;left:18px;top:38px;width:76px;height:76px;border-radius:50%;border:5px solid var(--surface);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#fff;}
+.prof-x{position:absolute;right:8px;top:6px;background:rgba(0,0,0,.35);border:none;color:#fff;border-radius:50%;width:26px;height:26px;cursor:pointer;}
+.prof-body{padding:46px 18px 0;}
+.prof-name{font-size:19px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.prof-tag{font-size:10.5px;font-weight:700;padding:2px 6px;border-radius:5px;background:var(--surface-2);}
+.prof-tag.admin{color:var(--accent-amber,#e8a458);}
+.prof-box{background:var(--surface-2);border-radius:10px;padding:10px 12px;margin-top:12px;font-size:13px;}
+.prof-box h4{margin:0 0 5px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-secondary);}
+.prof-box textarea{width:100%;box-sizing:border-box;min-height:62px;resize:none;background:var(--surface);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:var(--text-primary);font-family:inherit;font-size:13px;padding:7px;outline:none;}
+.badges{display:flex;flex-wrap:wrap;gap:5px;}
+.badge{font-size:11.5px;padding:2px 8px;border-radius:10px;background:rgba(109,106,242,.22);}
+.badge.yr{background:rgba(232,164,88,.25);color:#f0c27a;}
+.badge.cur{outline:2px solid #fff3;font-weight:700;}
+.prof-foot{margin-top:12px;padding:11px 18px;background:rgba(0,0,0,.18);font-size:12.5px;color:var(--text-secondary);display:flex;justify-content:space-between;gap:8px;}
+.prof-act{display:flex;gap:8px;margin-top:8px;}
+.prof-act button{background:var(--surface);border:none;color:var(--text-primary);border-radius:7px;padding:6px 10px;cursor:pointer;font-size:12px;}
+.who,.avatar{cursor:pointer;}
 .msg-text{font-size:14px; line-height:1.5; color:var(--text-primary); word-wrap:break-word; white-space:pre-wrap;}
 .edited-tag{font-size:10.5px; color:var(--text-faint); font-style:italic; margin-left:4px;}
 .empty-hint{margin:auto; text-align:center; color:var(--text-faint); font-size:13px; padding:40px;}
@@ -411,7 +431,7 @@ window.addEventListener('message', function(e){
     if(d.ok) p.res(d.value); else p.rej(new Error(d.error || 'Request failed.'));
   } else if(d.type === 'chat-visible'){
     visible = !!d.visible;
-    if(visible) poll();
+    if(visible){ poll(); if(typeof syncLastGame === 'function') syncLastGame(); }
   } else if(d.type === 'chat-theme'){
     applyChatTheme(d.vars);
   }
@@ -529,7 +549,7 @@ document.getElementById('membersBtn').addEventListener('click', async ()=>{
   const online = onlineNow.slice(), set = new Set(online.map(x=>x.toLowerCase()));
   const off = all.filter(n=>!set.has(n.toLowerCase()));
   const list = box.querySelector('#memList'); list.textContent = '';
-  const add = (n, on)=>{ const r = document.createElement('div'); r.className = 'mem-row'; r.innerHTML = '<span class="mem-dot' + (on?' on':'') + '"></span>'; const t = document.createElement('span'); t.textContent = n; r.appendChild(t); list.appendChild(r); };
+  const add = (n, on)=>{ const r = document.createElement('div'); r.className = 'mem-row'; r.innerHTML = '<span class="mem-dot' + (on?' on':'') + '"></span>'; const t = document.createElement('span'); t.textContent = n; t.style.cursor = 'pointer'; t.addEventListener('click', ()=>{ ov.remove(); openProfile(n); }); r.appendChild(t); list.appendChild(r); };
   online.forEach(n=>add(n, true)); off.forEach(n=>add(n, false));
 });
 function applyLock(v){
@@ -706,6 +726,102 @@ function authShow(msg){
   setTimeout(()=>authName.focus(), 20);
 }
 function setAuthBusy(b){ authBusy = b; authBtns.forEach(x=>{ x.disabled = b; }); }
+
+// ---------- profiles ----------
+function ago(ts){
+  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+  if(s < 60) return 'just now';
+  const m = Math.floor(s / 60); if(m < 60) return m + ' min ago';
+  const h = Math.floor(m / 60); if(h < 24) return h + ' hr ago';
+  const d = Math.floor(h / 24); if(d < 30) return d + ' day' + (d>1?'s':'') + ' ago';
+  const mo = Math.floor(d / 30); if(mo < 12) return mo + ' month' + (mo>1?'s':'') + ' ago';
+  const y = Math.floor(mo / 12); return y + ' year' + (y>1?'s':'') + ' ago';
+}
+function monthsSince(ts){
+  const a = new Date(ts), b = new Date();
+  let m = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if(b.getDate() < a.getDate()) m--;
+  return Math.max(0, m);
+}
+function badgeList(joined){
+  const m = monthsSince(joined), out = [];
+  if(m < 1){ out.push({ t:'New member', cur:true }); return out; }
+  const y = Math.floor(m / 12);
+  if(y === 0) for(let i = 1; i <= m; i++) out.push({ t: i + (i===1?' month':' months'), cur: (y === 0 && i === m) });
+  for(let i = 1; i <= y; i++) out.push({ t: i + (i===1?' year':' years'), yr:true, cur: i === y });
+  return out;
+}
+const profOverlay = document.createElement('div');
+profOverlay.className = 'modal-overlay'; profOverlay.style.cssText = 'display:none;z-index:60;';
+document.body.appendChild(profOverlay);
+profOverlay.addEventListener('mousedown', e=>{ if(e.target === profOverlay) profOverlay.style.display = 'none'; });
+async function openProfile(name){
+  profOverlay.style.display = 'flex';
+  profOverlay.innerHTML = '<div class="prof-card"><div class="prof-body" style="padding:30px;">Loading...</div></div>';
+  let p;
+  try{ p = await rpc('chatGetProfile', name); }
+  catch(err){ profOverlay.innerHTML = ''; profOverlay.style.display = 'none'; notice('Profile', err.message); return; }
+  const own = name === me.name && !(session && session.guest);
+  const card = document.createElement('div'); card.className = 'prof-card';
+  const color = (messages.find(m=>m.user===p.name) || {}).color || '#6d6af2';
+  const banner = document.createElement('div'); banner.className = 'prof-banner'; banner.style.background = 'linear-gradient(135deg,' + color + ',#1b1b28)';
+  const av = document.createElement('div'); av.className = 'prof-av'; paintAvatar(av, p.name, color);
+  const x = document.createElement('button'); x.className = 'prof-x'; x.textContent = '\u2715'; x.setAttribute('aria-label', 'Close');
+  x.addEventListener('click', ()=>{ profOverlay.style.display = 'none'; });
+  const body = document.createElement('div'); body.className = 'prof-body';
+  const nm = document.createElement('div'); nm.className = 'prof-name';
+  const nt = document.createElement('span'); nt.textContent = p.name; nm.appendChild(nt);
+  if(p.admin){ const t = document.createElement('span'); t.className = 'prof-tag admin'; t.textContent = 'ADMIN'; nm.appendChild(t); }
+  if(p.guest){ const t = document.createElement('span'); t.className = 'prof-tag'; t.textContent = 'GUEST'; nm.appendChild(t); }
+  body.appendChild(nm);
+  if(!p.guest){
+    const bio = document.createElement('div'); bio.className = 'prof-box';
+    bio.innerHTML = '<h4>About me</h4>';
+    if(own){
+      const ta = document.createElement('textarea'); ta.maxLength = 190; ta.placeholder = 'Tell people about yourself...'; ta.value = p.bio || '';
+      const act = document.createElement('div'); act.className = 'prof-act';
+      const save = document.createElement('button'); save.textContent = 'Save';
+      const pic = document.createElement('button'); pic.textContent = 'Change picture';
+      save.addEventListener('click', async ()=>{ save.disabled = true; try{ await rpc('chatSetProfile', me.name, ta.value, null, adminPw, tokenOf()); save.textContent = 'Saved'; }catch(err){ notice('Could not save', err.message); } setTimeout(()=>{ save.disabled = false; save.textContent = 'Save'; }, 1200); });
+      pic.addEventListener('click', ()=>{ profOverlay.style.display = 'none'; userAvatar.click(); });
+      act.appendChild(save); act.appendChild(pic);
+      bio.appendChild(ta); bio.appendChild(act);
+    } else {
+      const t = document.createElement('div'); t.style.whiteSpace = 'pre-wrap'; t.textContent = p.bio || 'No description yet.'; if(!p.bio) t.style.opacity = '.6'; bio.appendChild(t);
+    }
+    body.appendChild(bio);
+    if(p.joined){
+      const since = document.createElement('div'); since.className = 'prof-box';
+      since.innerHTML = '<h4>Member since</h4>';
+      const d = document.createElement('div'); d.textContent = new Date(p.joined).toLocaleDateString([], { year:'numeric', month:'long', day:'numeric' });
+      since.appendChild(d);
+      const bd = document.createElement('div'); bd.className = 'badges'; bd.style.marginTop = '8px';
+      badgeList(p.joined).forEach(b=>{ const s = document.createElement('span'); s.className = 'badge' + (b.yr?' yr':'') + (b.cur?' cur':''); s.textContent = b.t; bd.appendChild(s); });
+      since.appendChild(bd);
+      body.appendChild(since);
+    }
+  } else {
+    const g = document.createElement('div'); g.className = 'prof-box'; g.textContent = 'Guests do not have profiles. Create an account to get one.'; body.appendChild(g);
+  }
+  const foot = document.createElement('div'); foot.className = 'prof-foot';
+  const l = document.createElement('span'); l.textContent = p.lastGame ? ('\uD83C\uDFAE Last played ' + p.lastGame) : '\uD83C\uDFAE No games played yet';
+  foot.appendChild(l);
+  if(p.lastGame){ const r = document.createElement('span'); r.textContent = ago(p.lastGameTs); foot.appendChild(r); }
+  card.appendChild(banner); card.appendChild(av); card.appendChild(x); card.appendChild(body); card.appendChild(foot);
+  profOverlay.innerHTML = ''; profOverlay.appendChild(card);
+}
+let lastGameSent = 0;
+function syncLastGame(){
+  if(!session || session.guest) return;
+  let g = null;
+  try{ g = JSON.parse(localStorage.getItem('nimbus-lastgame') || 'null'); }catch(e){}
+  if(!g || !g.n || g.t === lastGameSent) return;
+  lastGameSent = g.t;
+  rpc('chatSetProfile', me.name, null, g.n, adminPw, tokenOf()).catch(()=>{});
+}
+userNameDisplay.style.cursor = 'pointer';
+userNameDisplay.addEventListener('click', ()=>{ if(me.name) openProfile(me.name); });
+
 function enterApp(name, token, guest, admin){
   session = { token: token, name: name, guest: !!guest, admin: !!admin };
   saveSession();
@@ -713,6 +829,7 @@ function enterApp(name, token, guest, admin){
   me.isAdmin = !!admin;
   adminPw = '';                       // the password is never kept; the admin stays logged in with a token
   loadLocalAv();
+  setTimeout(syncLastGame, 1500);
   authOverlay.style.display = 'none';
   authName.value = ''; authPass.value = ''; authErr.textContent = '';
   document.getElementById('userSub').textContent = admin ? 'Online' : (guest ? 'Guest' : 'Online');
@@ -1503,6 +1620,7 @@ function renderMessages(){
     const avatar = document.createElement('div');
     avatar.className = 'avatar';
     paintAvatar(avatar, m.user, m.color);
+    avatar.addEventListener('click', ()=>openProfile(m.user));
     row.appendChild(avatar);
 
     const body = document.createElement('div');
@@ -1537,6 +1655,7 @@ function renderMessages(){
     who.className = 'who';
     who.style.color = m.color || 'var(--text-primary)';
     who.textContent = m.user;
+    who.addEventListener('click', ()=>openProfile(m.user));
     const time = document.createElement('span');
     time.className = 'time';
     time.textContent = new Date(m.ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
