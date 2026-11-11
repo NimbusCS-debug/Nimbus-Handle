@@ -333,7 +333,7 @@ body{
     <div class="channel-header">
       <span class="hash">#</span><span id="channelTitle">general</span>
       <span class="sub">Shared live — everyone here sees the same messages</span>
-      <div class="hdr-tools"><input id="searchBox" placeholder="Search messages" autocomplete="off"><button id="membersBtn" title="Members">👥</button></div>
+      <div class="hdr-tools"><input id="searchBox" placeholder="Search messages" autocomplete="off"><button id="friendsBtn" title="Friends" style="position:relative;">🤝<span id="frDot" style="display:none;position:absolute;top:-4px;right:-4px;background:#e5484d;color:#fff;border-radius:9px;font-size:10px;padding:0 5px;line-height:15px;"></span></button><button id="membersBtn" title="Members">👥</button></div>
     </div>
     <div class="pin-strip" id="pinStrip"></div>
     <div class="messages" id="messagesList"></div>
@@ -784,7 +784,8 @@ async function openProfile(name){
   profOverlay.style.display = 'flex';
   profOverlay.innerHTML = '<div class="prof-card"><div class="prof-body" style="padding:30px;">Loading...</div></div>';
   let p;
-  try{ p = await rpc('chatGetProfile', name); }
+  let fl = null;
+  try{ p = await rpc('chatGetProfile', name); if(canFriend() && name !== me.name) fl = await rpc('chatFriends', me.name, adminPw, tokenOf()).catch(()=>null); }
   catch(err){ profOverlay.innerHTML = ''; profOverlay.style.display = 'none'; notice('Profile', err.message); return; }
   const own = name === me.name && !(session && session.guest);
   const card = document.createElement('div'); card.className = 'prof-card';
@@ -870,6 +871,17 @@ async function openProfile(name){
   } else {
     const g = document.createElement('div'); g.className = 'prof-box'; g.textContent = 'Guests do not have profiles. Create an account to get one.'; body.appendChild(g);
   }
+  if(fl && !p.guest){
+    const low = x=>String(x).toLowerCase(), n = low(p.name);
+    const has = a=>a.some(x=>low(x) === n);
+    const fb = document.createElement('div'); fb.className = 'prof-act'; fb.style.cssText = 'margin:12px 0 0;';
+    const mk = (label, fn)=>{ const b = document.createElement('button'); b.textContent = label; b.addEventListener('click', async ()=>{ b.disabled = true; try{ await fn(); openProfile(name); }catch(err){ notice('Friends', err.message); b.disabled = false; } }); fb.appendChild(b); };
+    if(has(fl.friends)) mk('\u2713 Friends \u2022 Remove', ()=>rpc('chatFriendRemove', me.name, p.name, adminPw, tokenOf()));
+    else if(has(fl.incoming)){ mk('Accept friend request', ()=>rpc('chatFriendRespond', me.name, p.name, true, adminPw, tokenOf())); mk('Decline', ()=>rpc('chatFriendRespond', me.name, p.name, false, adminPw, tokenOf())); }
+    else if(has(fl.outgoing)) mk('Request sent \u2022 Cancel', ()=>rpc('chatFriendRemove', me.name, p.name, adminPw, tokenOf()));
+    else mk('+ Add friend', ()=>rpc('chatFriendRequest', me.name, p.name, adminPw, tokenOf()));
+    body.appendChild(fb);
+  }
   const foot = document.createElement('div'); foot.className = 'prof-foot';
   const l = document.createElement('span'); l.textContent = p.lastGame ? ('\uD83C\uDFAE Last played ' + p.lastGame) : '\uD83C\uDFAE No games played yet';
   foot.appendChild(l);
@@ -877,6 +889,51 @@ async function openProfile(name){
   card.appendChild(banner); card.appendChild(av); card.appendChild(x); card.appendChild(body); card.appendChild(foot);
   profOverlay.innerHTML = ''; profOverlay.appendChild(card);
 }
+// ---------- friends ----------
+function canFriend(){ return session && !session.guest; }
+document.getElementById('friendsBtn').addEventListener('click', ()=>{
+  if(!canFriend()){ notice('Friends', 'Create an account to use friends.'); return; }
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay'; ov.style.display = 'flex';
+  const box = document.createElement('div'); box.className = 'modal-box'; box.style.cssText = 'max-width:420px;width:92%;';
+  box.innerHTML = '<h3>Friends</h3><div style="display:flex;gap:6px;margin:6px 0;"><button class="btn-cancel" data-t="f">Friends</button><button class="btn-cancel" data-t="r">Requests</button></div><div id="frBody" style="max-height:300px;overflow:auto;margin:8px 0;font-size:13px;"></div><div style="display:flex;gap:6px;"><input id="frAdd" placeholder="Add a friend by username" maxlength="20" style="flex:1;padding:7px;border-radius:7px;border:1px solid rgba(255,255,255,.15);background:transparent;color:inherit;"><button class="btn-confirm" id="frSend">Add</button></div><div class="modal-actions"><button class="btn-cancel" id="frClose">Close</button></div>';
+  ov.appendChild(box); document.body.appendChild(ov);
+  box.querySelector('#frClose').addEventListener('click', ()=>ov.remove());
+  const body = box.querySelector('#frBody');
+  let tab = 'f';
+  const row = (name, dot, btns)=>{
+    const r = document.createElement('div'); r.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);';
+    if(dot !== null){ const d = document.createElement('span'); d.className = 'mem-dot' + (dot ? ' on' : ''); r.appendChild(d); }
+    const t = document.createElement('span'); t.textContent = name; t.style.cssText = 'flex:1;cursor:pointer;'; t.addEventListener('click', ()=>{ ov.remove(); openProfile(name); }); r.appendChild(t);
+    btns.forEach(([label, fn])=>{ const b = document.createElement('button'); b.className = 'btn-cancel'; b.textContent = label; b.addEventListener('click', async ()=>{ b.disabled = true; try{ await fn(); }catch(e){ notice('Error', e.message); } show(); }); r.appendChild(b); });
+    return r;
+  };
+  async function show(){
+    body.textContent = 'Loading...';
+    try{
+      const f = await rpc('chatFriends', me.name, adminPw, tokenOf());
+      body.textContent = '';
+      const on = new Set(onlineNow.map(x=>x.toLowerCase()));
+      if(tab === 'f'){
+        if(!f.friends.length) body.textContent = 'No friends yet. Add someone by username or from their profile.';
+        f.friends.slice().sort((a,b)=>(on.has(b.toLowerCase())?1:0)-(on.has(a.toLowerCase())?1:0) || a.localeCompare(b)).forEach(n=>body.appendChild(row(n, on.has(n.toLowerCase()), [['Remove', ()=>rpc('chatFriendRemove', me.name, n, adminPw, tokenOf())]])));
+      } else {
+        if(!f.incoming.length && !f.outgoing.length) body.textContent = 'No pending requests.';
+        f.incoming.forEach(n=>body.appendChild(row(n, null, [['Accept', ()=>rpc('chatFriendRespond', me.name, n, true, adminPw, tokenOf())], ['Decline', ()=>rpc('chatFriendRespond', me.name, n, false, adminPw, tokenOf())]])));
+        f.outgoing.forEach(n=>body.appendChild(row(n + ' (sent)', null, [['Cancel', ()=>rpc('chatFriendRemove', me.name, n, adminPw, tokenOf())]])));
+      }
+      const d = document.getElementById('frDot'); d.textContent = f.incoming.length; d.style.display = f.incoming.length ? 'block' : 'none';
+    }catch(err){ body.textContent = err.message; }
+  }
+  box.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click', ()=>{ tab = b.dataset.t; show(); }));
+  box.querySelector('#frSend').addEventListener('click', async ()=>{
+    const inp = box.querySelector('#frAdd'), n = inp.value.trim(); if(!n) return;
+    try{ const r = await rpc('chatFriendRequest', me.name, n, adminPw, tokenOf()); inp.value = ''; tab = r === 'accepted' ? 'f' : 'r'; }catch(e){ notice('Could not add', e.message); }
+    show();
+  });
+  show();
+});
+
 let lastGameSent = 0;
 function syncLastGame(){
   if(!session || session.guest) return;
@@ -1389,6 +1446,7 @@ function schedule(){
   }, 3000);
 }
 function applyPoll(r){
+  if(typeof r.friendReqs === 'number'){ const d = document.getElementById('frDot'); d.textContent = r.friendReqs; d.style.display = r.friendReqs ? 'block' : 'none'; }
   if(r.online){ onlineNow = r.online; }
   if(r.chId === activeChannelId) showTyping(r.typing);
   if(r.mvers){
