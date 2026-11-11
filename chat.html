@@ -208,6 +208,14 @@ body{
 .prof-act{display:flex;gap:8px;margin-top:8px;}
 .prof-act button{background:var(--surface);border:none;color:var(--text-primary);border-radius:7px;padding:6px 10px;cursor:pointer;font-size:12px;}
 .who,.avatar{cursor:pointer;}
+.bx{position:relative;display:inline-flex;}
+.bx .rm{display:none;position:absolute;top:-6px;right:-6px;width:15px;height:15px;border-radius:50%;background:#e5484d;color:#fff;border:none;font-size:10px;line-height:15px;padding:0;cursor:pointer;}
+.bx:hover .rm{display:block;}
+.plus-chip{font-size:12px;padding:1px 8px;border-radius:10px;background:var(--surface);border:1px dashed rgba(255,255,255,.3);color:var(--text-secondary);cursor:pointer;font-family:inherit;line-height:1.4;}
+.plus-chip:hover{color:var(--text-primary);border-color:#fff8;}
+.bg-pick{position:absolute;z-index:5;background:var(--surface);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.5);min-width:150px;max-height:180px;overflow:auto;font-size:12.5px;}
+.bg-pick button{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text-primary);padding:5px 8px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:12.5px;}
+.bg-pick button:hover{background:var(--surface-2);}
 .msg-text{font-size:14px; line-height:1.5; color:var(--text-primary); word-wrap:break-word; white-space:pre-wrap;}
 .edited-tag{font-size:10.5px; color:var(--text-faint); font-style:italic; margin-left:4px;}
 .empty-hint{margin:auto; text-align:center; color:var(--text-faint); font-size:13px; padding:40px;}
@@ -790,7 +798,39 @@ async function openProfile(name){
   const nt = document.createElement('span'); nt.textContent = p.name; nm.appendChild(nt);
   if(p.admin){ const t = document.createElement('span'); t.className = 'prof-tag admin'; t.textContent = 'ADMIN'; nm.appendChild(t); }
   if(p.guest){ const t = document.createElement('span'); t.className = 'prof-tag'; t.textContent = 'GUEST'; nm.appendChild(t); }
-  ((p.badges && p.badges.account) || []).forEach(b=>{ const t = document.createElement('span'); t.className = 'prof-tag'; t.textContent = b.name.toUpperCase(); t.style.color = b.color; t.style.background = b.color + '26'; nm.appendChild(t); });
+  const canEdit = me.isAdmin && !p.guest;
+  const reload = ()=>openProfile(name);
+  async function removeBadge(b){ try{ await rpc('chatGiveBadge', b.id, p.name, false, adminPw, tokenOf()); reload(); }catch(err){ notice('Could not remove', err.message); } }
+  function withX(el, b){
+    if(!canEdit) return el;
+    const w = document.createElement('span'); w.className = 'bx'; w.appendChild(el);
+    const x = document.createElement('button'); x.className = 'rm'; x.textContent = '\u2715'; x.title = 'Remove badge'; x.setAttribute('aria-label', 'Remove ' + b.name);
+    x.addEventListener('click', e=>{ e.stopPropagation(); removeBadge(b); });
+    w.appendChild(x); return w;
+  }
+  function plusChip(kind, host, have){
+    const pb = document.createElement('button'); pb.className = 'plus-chip'; pb.textContent = '+'; pb.title = 'Add a ' + kind + ' badge';
+    pb.addEventListener('click', async e=>{
+      e.stopPropagation();
+      const old = card.querySelector('.bg-pick'); if(old){ old.remove(); return; }
+      const pick = document.createElement('div'); pick.className = 'bg-pick'; pick.textContent = 'Loading...';
+      host.style.position = 'relative'; host.appendChild(pick);
+      try{
+        const all = (await rpc('chatListBadges')).filter(b=>b.kind === kind && !have.some(h=>h.id === b.id));
+        pick.textContent = '';
+        if(!all.length) pick.textContent = 'No ' + kind + ' badges left. Create one in the admin dashboard.';
+        all.forEach(b=>{
+          const it = document.createElement('button'); it.textContent = b.name; it.style.color = b.color;
+          it.addEventListener('click', async ()=>{ try{ await rpc('chatGiveBadge', b.id, p.name, true, adminPw, tokenOf()); reload(); }catch(err){ notice('Could not add', err.message); } });
+          pick.appendChild(it);
+        });
+      }catch(err){ pick.textContent = err.message; }
+    });
+    return pb;
+  }
+  const accBadges = (p.badges && p.badges.account) || [];
+  accBadges.forEach(b=>{ const t = document.createElement('span'); t.className = 'prof-tag'; t.textContent = b.name.toUpperCase(); t.style.color = b.color; t.style.background = b.color + '26'; nm.appendChild(withX(t, b)); });
+  if(canEdit) nm.appendChild(plusChip('account', nm, accBadges));
   body.appendChild(nm);
   if(!p.guest){
     const bio = document.createElement('div'); bio.className = 'prof-box';
@@ -808,7 +848,7 @@ async function openProfile(name){
       const t = document.createElement('div'); t.style.whiteSpace = 'pre-wrap'; t.textContent = p.bio || 'No description yet.'; if(!p.bio) t.style.opacity = '.6'; bio.appendChild(t);
     }
     body.appendChild(bio);
-    if(p.joined){
+    if(p.joined > 1e12){
       const since = document.createElement('div'); since.className = 'prof-box';
       since.innerHTML = '<h4>Member since</h4>';
       const d = document.createElement('div'); d.textContent = new Date(p.joined).toLocaleDateString([], { year:'numeric', month:'long', day:'numeric' });
@@ -819,11 +859,12 @@ async function openProfile(name){
       body.appendChild(since);
     }
     const minis = (p.badges && p.badges.mini) || [];
-    if(minis.length){
+    if(minis.length || canEdit){
       const mb = document.createElement('div'); mb.className = 'prof-box';
       mb.innerHTML = '<h4>Badges</h4>';
       const row = document.createElement('div'); row.className = 'badges';
-      minis.forEach(b=>{ const s = document.createElement('span'); s.className = 'badge'; s.textContent = b.name; s.style.background = b.color + '38'; s.style.color = b.color; row.appendChild(s); });
+      minis.forEach(b=>{ const s = document.createElement('span'); s.className = 'badge'; s.textContent = b.name; s.style.background = b.color + '38'; s.style.color = b.color; row.appendChild(withX(s, b)); });
+      if(canEdit) row.appendChild(plusChip('mini', mb, minis));
       mb.appendChild(row); body.appendChild(mb);
     }
   } else {
