@@ -866,7 +866,7 @@ async function doAuth(mode){
     const name = authName.value.trim(), pass = authPass.value;
     if(!name || !pass) throw new Error('Enter a username and password.');
     if(isReserved(name)){
-      const r = await rpc('chatAdminLogin', pass);
+      const r = await rpc('chatAdminLogin', pass, name);
       enterApp(r.name, r.token, false, true);
       return;
     }
