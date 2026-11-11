@@ -670,7 +670,7 @@ bansBtn.addEventListener('click', async ()=>{
   const ov = document.createElement('div');
   ov.className = 'modal-overlay'; ov.style.display = 'flex';
   const box = document.createElement('div'); box.className = 'modal-box'; box.style.maxWidth = '520px'; box.style.width = '92%';
-  box.innerHTML = '<h3>Admin dashboard</h3><div style="display:flex;gap:6px;margin:6px 0;"><button class="btn-cancel" data-t="rep">Reports</button><button class="btn-cancel" data-t="ban">Bans & mutes</button><button class="btn-cancel" data-t="log">Audit log</button></div><div id="dashBody" style="max-height:320px;overflow:auto;margin:8px 0;font-size:13px;"></div><div class="modal-actions"><button class="btn-confirm" id="banClose">Close</button></div>';
+  box.innerHTML = '<h3>Admin dashboard</h3><div style="display:flex;gap:6px;margin:6px 0;"><button class="btn-cancel" data-t="rep">Reports</button><button class="btn-cancel" data-t="ban">Bans & mutes</button><button class="btn-cancel" data-t="log">Audit log</button><button class="btn-cancel" data-t="badge">Badges</button></div><div id="dashBody" style="max-height:320px;overflow:auto;margin:8px 0;font-size:13px;"></div><div class="modal-actions"><button class="btn-confirm" id="banClose">Close</button></div>';
   ov.appendChild(box); document.body.appendChild(ov);
   box.querySelector('#banClose').addEventListener('click', ()=>ov.remove());
   const body = box.querySelector('#dashBody');
@@ -695,6 +695,24 @@ bansBtn.addEventListener('click', async ()=>{
         const bans = await rpc('chatListBans', adminPw, tokenOf()); body.textContent = '';
         if(!bans.length) body.textContent = 'Nobody is banned or muted.';
         bans.forEach(b=>body.appendChild(rowEl(b.label, [['Remove', ()=>rpc('chatUnban', b.type, b.key, adminPw, tokenOf())]])));
+      } else if(tab === 'badge'){
+        const list = await rpc('chatListBadges'); body.textContent = '';
+        const form = document.createElement('div'); form.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;';
+        form.innerHTML = '<input id="bgName" maxlength="16" placeholder="Badge name" style="flex:1;min-width:100px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:transparent;color:inherit;"><select id="bgKind" style="padding:6px;border-radius:6px;background:transparent;color:inherit;border:1px solid rgba(255,255,255,.15);"><option value="mini" style="color:#000">Mini badge</option><option value="account" style="color:#000">Account badge</option></select><input id="bgColor" type="color" value="#6d6af2" style="width:34px;height:30px;border:none;background:none;"><button class="btn-cancel" id="bgMake">Create</button>';
+        body.appendChild(form);
+        form.querySelector('#bgMake').addEventListener('click', async ()=>{
+          try{ await rpc('chatSaveBadge', form.querySelector('#bgName').value, form.querySelector('#bgKind').value, form.querySelector('#bgColor').value, adminPw, tokenOf()); show('badge'); }catch(e){ notice('Error', e.message); }
+        });
+        if(!list.length) body.appendChild(document.createTextNode('No custom badges yet.'));
+        list.forEach(b=>{
+          const row = document.createElement('div'); row.style.cssText = 'padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);display:flex;gap:6px;align-items:center;flex-wrap:wrap;';
+          const chip = document.createElement('span'); chip.className = 'badge'; chip.textContent = b.name + ' (' + b.kind + ')'; chip.style.background = b.color + '38'; chip.style.color = b.color;
+          const u = document.createElement('input'); u.placeholder = 'username'; u.style.cssText = 'width:100px;padding:4px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:transparent;color:inherit;margin-left:auto;';
+          const mk = (label, give)=>{ const bt = document.createElement('button'); bt.className = 'btn-cancel'; bt.textContent = label; bt.addEventListener('click', async ()=>{ try{ await rpc('chatGiveBadge', b.id, u.value, give, adminPw, tokenOf()); notice(give ? 'Given' : 'Removed', b.name + (give ? ' given to ' : ' removed from ') + u.value); }catch(e){ notice('Error', e.message); } }); return bt; };
+          const del = document.createElement('button'); del.className = 'btn-cancel'; del.textContent = 'Delete'; del.addEventListener('click', async ()=>{ if(await confirmDialog('Delete badge ' + b.name + '?', 'It is removed from everyone.')){ try{ await rpc('chatDeleteBadge', b.id, adminPw, tokenOf()); show('badge'); }catch(e){ notice('Error', e.message); } } });
+          row.appendChild(chip); row.appendChild(u); row.appendChild(mk('Give', true)); row.appendChild(mk('Take', false)); row.appendChild(del);
+          body.appendChild(row);
+        });
       } else {
         const log = await rpc('chatAuditLog', adminPw, tokenOf()); body.textContent = '';
         if(!log.length) body.textContent = 'Nothing logged yet.';
@@ -744,12 +762,11 @@ function monthsSince(ts){
   return Math.max(0, m);
 }
 function badgeList(joined){
-  const m = monthsSince(joined), out = [];
-  if(m < 1){ out.push({ t:'New member', cur:true }); return out; }
+  const m = monthsSince(joined);
+  if(m < 1) return [{ t:'New member' }];
+  if(m < 12) return [{ t: m + (m===1?' month':' months') }];
   const y = Math.floor(m / 12);
-  if(y === 0) for(let i = 1; i <= m; i++) out.push({ t: i + (i===1?' month':' months'), cur: (y === 0 && i === m) });
-  for(let i = 1; i <= y; i++) out.push({ t: i + (i===1?' year':' years'), yr:true, cur: i === y });
-  return out;
+  return [{ t: y + (y===1?' year':' years'), yr:true }];
 }
 const profOverlay = document.createElement('div');
 profOverlay.className = 'modal-overlay'; profOverlay.style.cssText = 'display:none;z-index:60;';
@@ -773,6 +790,7 @@ async function openProfile(name){
   const nt = document.createElement('span'); nt.textContent = p.name; nm.appendChild(nt);
   if(p.admin){ const t = document.createElement('span'); t.className = 'prof-tag admin'; t.textContent = 'ADMIN'; nm.appendChild(t); }
   if(p.guest){ const t = document.createElement('span'); t.className = 'prof-tag'; t.textContent = 'GUEST'; nm.appendChild(t); }
+  ((p.badges && p.badges.account) || []).forEach(b=>{ const t = document.createElement('span'); t.className = 'prof-tag'; t.textContent = b.name.toUpperCase(); t.style.color = b.color; t.style.background = b.color + '26'; nm.appendChild(t); });
   body.appendChild(nm);
   if(!p.guest){
     const bio = document.createElement('div'); bio.className = 'prof-box';
@@ -799,6 +817,14 @@ async function openProfile(name){
       badgeList(p.joined).forEach(b=>{ const s = document.createElement('span'); s.className = 'badge' + (b.yr?' yr':'') + (b.cur?' cur':''); s.textContent = b.t; bd.appendChild(s); });
       since.appendChild(bd);
       body.appendChild(since);
+    }
+    const minis = (p.badges && p.badges.mini) || [];
+    if(minis.length){
+      const mb = document.createElement('div'); mb.className = 'prof-box';
+      mb.innerHTML = '<h4>Badges</h4>';
+      const row = document.createElement('div'); row.className = 'badges';
+      minis.forEach(b=>{ const s = document.createElement('span'); s.className = 'badge'; s.textContent = b.name; s.style.background = b.color + '38'; s.style.color = b.color; row.appendChild(s); });
+      mb.appendChild(row); body.appendChild(mb);
     }
   } else {
     const g = document.createElement('div'); g.className = 'prof-box'; g.textContent = 'Guests do not have profiles. Create an account to get one.'; body.appendChild(g);
