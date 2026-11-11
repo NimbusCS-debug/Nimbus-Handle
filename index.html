@@ -1055,6 +1055,7 @@
                 recent = recent.filter(function (x) { return x !== k; });
                 recent.unshift(k); recent = recent.slice(0, 8);
                 put('nimbus-recent', recent);
+                put('nimbus-lastgame', { n: b.value, t: Date.now() });
                 var plays = get('nimbus-plays', {}); plays[k] = (plays[k] || 0) + 1; put('nimbus-plays', plays);
                 if (!reduced()) {
                     launch.innerHTML = ''; var sp = document.createElement('span'); sp.textContent = 'Launching ' + b.value + '...'; launch.appendChild(sp);
