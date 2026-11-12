@@ -849,6 +849,25 @@ async function openProfile(name){
       const t = document.createElement('div'); t.style.whiteSpace = 'pre-wrap'; t.textContent = p.bio || 'No description yet.'; if(!p.bio) t.style.opacity = '.6'; bio.appendChild(t);
     }
     body.appendChild(bio);
+    if(own){
+      const dcb = document.createElement('div'); dcb.className = 'prof-box';
+      dcb.innerHTML = '<h4>Discord</h4>';
+      const dt = document.createElement('div'); dt.textContent = 'Checking...'; dcb.appendChild(dt);
+      const da = document.createElement('div'); da.className = 'prof-act'; dcb.appendChild(da);
+      body.appendChild(dcb);
+      rpc('chatDiscordStatus', me.name, adminPw, tokenOf()).then(st=>{
+        const mkb = (label, fn)=>{ const b = document.createElement('button'); b.textContent = label; b.addEventListener('click', async ()=>{ b.disabled = true; try{ await fn(); }catch(err){ notice('Discord', err.message); } b.disabled = false; }); da.appendChild(b); };
+        if(!st.configured){ dt.textContent = 'Discord linking is not set up yet.'; return; }
+        if(st.linked){
+          dt.textContent = 'Linked to ' + (st.discordName || 'Discord');
+          mkb('Resync roles', async ()=>{ const r = await rpc('chatDiscordSync', me.name, adminPw, tokenOf()); notice('Discord', r); });
+          mkb('Unlink', async ()=>{ await rpc('chatDiscordUnlink', me.name, adminPw, tokenOf()); openProfile(name); });
+        } else {
+          dt.textContent = 'Link your Discord to get your Nimbus name and roles in the server.';
+          mkb('Link Discord', async ()=>{ const u = await rpc('chatDiscordLinkUrl', me.name, adminPw, tokenOf()); window.open(u, '_blank'); });
+        }
+      }).catch(()=>{ dt.textContent = 'Discord is unavailable right now.'; });
+    }
     if(p.joined > 1e12){
       const since = document.createElement('div'); since.className = 'prof-box';
       since.innerHTML = '<h4>Member since</h4>';
