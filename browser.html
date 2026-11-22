@@ -553,8 +553,31 @@ function titleFor(url, raw){
   return raw.length > 24 ? raw.slice(0,24)+'…' : raw;
 }
 
+// Anything that looks like YouTube opens the custom video player instead.
+const CUSTOM_PLAYER_URL = 'https://script.google.com/macros/s/AKfycbxMlQHyRkyqE0ujFgTmYLODWlY3qtTtHvFy_r6sgxuByRQFLi-zco2GX5GO0_ops2FXQA/exec';
+const YT_HOST = /(^|\.)(youtube|youtube-nocookie|youtubekids|youtu|ytimg|yt)\.(com|be|ly)$/i;
+function isYouTube(raw){
+  const t = String(raw).trim().toLowerCase();
+  if(!t) return false;
+  if(/^(https?:\/\/)?([\w-]+\.)*(youtube|youtube-nocookie|youtubekids|youtu)\.[a-z.]{2,}(\/|\?|#|:|$)/.test(t)) return true;   // youtube.com, m.youtube.com, music.youtube.com, youtu.be ...
+  try{ if(YT_HOST.test(new URL(/^https?:\/\//.test(t) ? t : 'https://' + t).hostname)) return true; }catch(e){}
+  const words = t.replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  return /^(you ?tube|yt|youtub|youtue|yutube|utube|youtbe|youtube (com|video|videos|music|kids|tv|shorts))$/.test(words);   // typed searches like "youtube" or "you tube"
+}
+
 function navigate(state, raw){
   let url = raw.trim();
+  if(isYouTube(url)){
+    const tab0 = activeTab(state);
+    tab0.hist = tab0.hist.slice(0, tab0.hi+1);
+    tab0.hist.push({ url: CUSTOM_PLAYER_URL, title: 'Video Player' });
+    tab0.hi = tab0.hist.length-1;
+    tab0.url = CUSTOM_PLAYER_URL;
+    tab0.title = 'Video Player';
+    renderTabs(state);
+    renderPage(state);
+    return;
+  }
   const looksLikeDomain = /^[\w-]+(\.[\w-]+)+/.test(url) && !/\s/.test(url);
   if(!/^https?:\/\//i.test(url)){
     url = looksLikeDomain ? 'https://' + url : 'https://duckduckgo.com/html/?q=' + encodeURIComponent(url);
