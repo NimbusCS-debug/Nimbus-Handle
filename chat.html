@@ -960,7 +960,7 @@ function syncLastGame(){
   try{ g = JSON.parse(localStorage.getItem('nimbus-lastgame') || 'null'); }catch(e){}
   if(!g || !g.n || g.t === lastGameSent) return;
   lastGameSent = g.t;
-  rpc('chatSetProfile', me.name, null, g.n, adminPw, tokenOf()).catch(()=>{});
+  rpc('chatSetProfile', me.name, null, g.n, adminPw, tokenOf(), g.t).catch(()=>{});
 }
 userNameDisplay.style.cursor = 'pointer';
 userNameDisplay.addEventListener('click', ()=>{ if(me.name) openProfile(me.name); });
