@@ -1055,7 +1055,7 @@
                 recent = recent.filter(function (x) { return x !== k; });
                 recent.unshift(k); recent = recent.slice(0, 8);
                 put('nimbus-recent', recent);
-                put('nimbus-lastgame', { n: b.value, t: Date.now() });
+                startPlayWatch(b.value);
                 var plays = get('nimbus-plays', {}); plays[k] = (plays[k] || 0) + 1; put('nimbus-plays', plays);
                 if (!reduced()) {
                     launch.innerHTML = ''; var sp = document.createElement('span'); sp.textContent = 'Launching ' + b.value + '...'; launch.appendChild(sp);
@@ -1064,6 +1064,22 @@
                 }
                 renderRecent();
             }, true);
+            // ----- "actually played": a click only counts once the player has spent 30s+ away from this page
+            // (the game tab/frame has the focus). Opening Nimbus or clicking and coming straight back does not count.
+            var watch = null, awayAt = 0, awayTotal = 0;
+            function startPlayWatch(name) { watch = { n: name, t: Date.now() }; awayAt = 0; awayTotal = 0; if (document.hidden || !document.hasFocus()) goAway(); }
+            function goAway() { if (watch && !awayAt) awayAt = Date.now(); }
+            function comeBack() {
+                if (!watch || !awayAt) return;
+                awayTotal += Date.now() - awayAt; awayAt = 0;
+                if (awayTotal >= 30000) confirmPlay(); else if (Date.now() - watch.t > 600000) watch = null;
+            }
+            function confirmPlay() { put('nimbus-lastgame', { n: watch.n, t: Date.now() }); watch = null; awayTotal = 0; }
+            document.addEventListener('visibilitychange', function () { document.hidden ? goAway() : comeBack(); });
+            window.addEventListener('blur', goAway);
+            window.addEventListener('focus', comeBack);
+            window.addEventListener('pagehide', function () { if (watch && awayAt && awayTotal + (Date.now() - awayAt) >= 30000) { awayTotal += Date.now() - awayAt; confirmPlay(); } });
+            setInterval(function () { if (watch && awayAt && awayTotal + (Date.now() - awayAt) >= 30000) { awayTotal += Date.now() - awayAt; awayAt = Date.now(); confirmPlay(); } }, 5000);
             function renderRecent() {
                 var origs = window.nimbusOrigs || {};
                 recentList.innerHTML = '';
